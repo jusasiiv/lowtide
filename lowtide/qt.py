@@ -22,6 +22,8 @@ from .core import eta as E
 from .service import LowTideService, State
 from .fmt import fmt_rate, fmt_time, fmt_window, fmt_duration
 from .qt_panel import ForecastPanel
+from .qt_stress import StressDialog
+from .qt_consolidate import ConsolidateDialog
 
 if TYPE_CHECKING:
     from electrum.gui.qt.main_window import ElectrumWindow
@@ -188,8 +190,19 @@ class Plugin(LowTidePlugin):
         m = window.tools_menu.addMenu('LowTide')
         m.setIcon(self.icon())
         m.addAction(_('Tide forecast'), lambda: self.open_panel(window))
+        m.addAction(_('Wallet stress test'), lambda: self.open_stress(window))
+        m.addAction(_('Consolidate at low tide…'), lambda: self.open_consolidate(window))
         m.addSeparator()
         m.addAction(_('Settings'), lambda: self.settings_dialog(window))
+
+    @hook
+    def qt_utxo_menu(self, menu, coins, wallet):
+        window = self._window_for_wallet(wallet)
+        if window is None or not coins:
+            return
+        outpoints = [c.prevout.to_str() for c in coins]
+        menu.addSeparator()
+        menu.addAction(_('Consolidate selected at low tide…'), lambda: self.open_consolidate(window, preselected=outpoints))
 
     @hook
     def load_wallet(self, wallet: 'Abstract_Wallet', window: 'ElectrumWindow'):
@@ -316,6 +329,23 @@ class Plugin(LowTidePlugin):
         panel.show()
         panel.raise_()
         panel.activateWindow()
+
+    def _window_for_wallet(self, wallet):
+        for w, st in self._windows.items():
+            if st.get('wallet') is wallet:
+                return w
+        return None
+
+    def open_stress(self, window):
+        d = StressDialog(self, window)
+        d.exec()
+
+    def open_consolidate(self, window, *, preselected=None, migration=False):
+        d = ConsolidateDialog(self, window, preselected=preselected, migration=migration)
+        d.exec()
+
+    def on_queue_changed(self, window):
+        pass  # M4: re-plan the send-later queue
 
     def apply_rate(self, window, rate: float):
         """Make Electrum's next send dialog open at this rate (sub-1 included)."""

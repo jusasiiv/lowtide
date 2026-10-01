@@ -121,6 +121,7 @@ class LowTideService(threading.Thread):
         self._hourly = []  # type: List[HI.HistoryPoint]
         self._history = {}  # type: Dict[str, Any]
         self._backoff = 0.0
+        self._fails = 0
         self.load_from_disk()
 
     # --- lifecycle ----------------------------------------------------
@@ -211,16 +212,20 @@ class LowTideService(threading.Thread):
             st.offline, st.last_error = False, ''
             self._last_live = time.time()
             self._backoff = 0.0
+            self._fails = 0
             self.store.append_snapshot(hist=st.hist, blocks=st.blocks, next_block_rate=H.next_block_rate(st.hist),
                                        extra={'source': st.hist_source})
             self._log(f'live refresh ok ({st.hist_source}): next block {H.next_block_rate(st.hist)} sat/vB, {len(st.hist)} histogram entries')
             self._save_cache()
             return True
         except Exception as e:
-            st.last_error = f'{type(e).__name__}: {e}'[:200]
+            err = f'{type(e).__name__}: {e}'[:200]
+            if err != st.last_error:
+                self._log(f'live refresh failed: {err}')
+            st.last_error = err
             st.offline = True
-            self._backoff = time.time() + min(900, 60 * (2 ** min(4, int(self._backoff > 0) * 2)))
-            self._log(f'live refresh failed: {st.last_error}')
+            self._fails += 1
+            self._backoff = time.time() + min(900, 60 * (2 ** min(self._fails, 4)))
             if not st.hist:
                 hist = self.server_histogram_fn() or []
                 if hist:
