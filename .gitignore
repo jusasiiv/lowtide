@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.zip
+dist/
+.DS_Store
+tests/fixtures/_live/

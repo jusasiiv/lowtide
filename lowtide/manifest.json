@@ -1,0 +1,11 @@
+{
+  "name": "lowtide",
+  "fullname": "LowTide",
+  "description": "Send, consolidate and rescue at low tide. A 7-day fee tide forecast with resolution below 1 sat/vB, a wallet stress test, privacy-aware consolidation, stuck-transaction rescue with the mempool.space accelerator, and send-later for non-urgent payments. Aggregate network data only; you always sign.",
+  "author": "LowTide contributors",
+  "license": "MIT",
+  "available_for": ["qt"],
+  "icon": "lowtide.png",
+  "version": "0.1.0",
+  "min_electrum_version": "4.8.0"
+}
