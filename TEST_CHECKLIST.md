@@ -10,10 +10,11 @@ Dev setup: Electrum 4.8.2 from source with the plugin symlinked; `-D` always poi
 - [ ] Status bar shows the next-block rate and the next low tide; tooltip explains; click opens the panel.
 - [ ] Panel renders chart, band, windows, now marker; tooltips on hover.
 - [ ] Rate checker: 0.4 gives an ETA; deadline planner gives a rate and a "wait until".
-- [ ] Pile view shows the floor pile, Electrum's 1 sat/vB line and the orange pile-jump bar; "Use" opens Electrum's send dialog prefilled at a sub-1 rate; Pay… shows that rate in the confirm dialog.
+- [ ] The suggestion line names the pile-jump rate with an ETA; "Use" opens Electrum's send dialog prefilled at a sub-1 rate; Pay… shows that rate in the confirm dialog.
 - [ ] On a server with a 1 sat/vB relay fee the status bar turns amber with "server blocks sub-1".
 - [ ] Offline: the panel shows cached data with "data as of"; no errors.
 - [ ] Notification: Settings ▸ Send test notification shows a banner and the in-app cue; the "low tide now" demo switch triggers the real one once.
+- [ ] Nostr: Settings ▸ npub + Send test DM arrives on the phone; the low-tide and stranded alerts also arrive.
 
 ## Stress test, tech check, consolidation (F2)
 - [ ] Stress table rows: now, low tide, spikes, custom slider; uneconomical coins counted; fiat shown when exchange rates are on.
@@ -29,10 +30,3 @@ Dev setup: Electrum 4.8.2 from source with the plugin symlinked; `-D` always poi
 - [ ] Recommendation line changes with the deadline.
 - [ ] Get estimate (mainnet): quote line with bid + base fee; Choose ▸ Continue ▸ invoice; BOLT11 amount matches the quoted total; QR shown; Pay with Lightning only when the wallet can pay; both confirmations appear.
 - [ ] Stranded: the "stranded" demo switch flags unconfirmed txs, status bar shows ⚠, panel shows Rescue…, one notification per tx.
-
-## Send later (F4)
-- [ ] Send tab ▸ Later… prefills the queue dialog; Add validates address, amount, deadline.
-- [ ] Planned column shows the chosen window and rate; consolidations use the floor.
-- [ ] Low tide now switch: notification + Prepare batch ▸ one transaction with all due outputs in the preview; after broadcast the items show "sent".
-- [ ] Deadline approaching switch on a sent, unconfirmed batch opens the deadline guard.
-- [ ] Demo reset clears alerts, stranded flags and switches.

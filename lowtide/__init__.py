@@ -20,3 +20,11 @@ if not hasattr(SimpleConfig, 'LOWTIDE_MEMPOOL_URL'):
         key='plugins.lowtide.poll_minutes', default=10, type_=int, plugin=plugin_name)
     SimpleConfig.LOWTIDE_OSASCRIPT_NOTIFY = ConfigVar(
         key='plugins.lowtide.osascript_notify', default=False, type_=bool, plugin=plugin_name)
+    SimpleConfig.LOWTIDE_NOSTR_ENABLED = ConfigVar(
+        key='plugins.lowtide.nostr_enabled', default=False, type_=bool, plugin=plugin_name)
+    SimpleConfig.LOWTIDE_NOSTR_NPUB = ConfigVar(
+        key='plugins.lowtide.nostr_npub', default='', type_=str, plugin=plugin_name)
+    SimpleConfig.LOWTIDE_NOSTR_RELAYS = ConfigVar(
+        key='plugins.lowtide.nostr_relays', default='', type_=str, plugin=plugin_name)
+    SimpleConfig.LOWTIDE_NOSTR_PRIVKEY = ConfigVar(
+        key='plugins.lowtide.nostr_privkey', default='', type_=str, plugin=plugin_name)

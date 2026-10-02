@@ -1,6 +1,4 @@
 """Privacy-aware consolidation and migration dialog."""
-import time
-import uuid
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
 from PyQt6.QtCore import Qt
@@ -121,9 +119,7 @@ class ConsolidateDialog(WindowModalDialog):
 
         self.prepare_btn = QPushButton(_('Prepare now'))
         self.prepare_btn.clicked.connect(self.prepare_now)
-        self.queue_btn = QPushButton(_('Queue for low tide'))
-        self.queue_btn.clicked.connect(self.queue)
-        vbox.addLayout(Buttons(CancelButton(self), self.queue_btn, self.prepare_btn))
+        vbox.addLayout(Buttons(CancelButton(self), self.prepare_btn))
         self.plans = []
         self.refresh()
 
@@ -185,7 +181,6 @@ class ConsolidateDialog(WindowModalDialog):
         self.warning.setText(warn)
         ok = bool(self.plans) and not (self.migration and (not self.dest_e.text().strip() or not is_address(self.dest_e.text().strip())))
         self.prepare_btn.setEnabled(ok)
-        self.queue_btn.setEnabled(ok)
 
     # --- actions ------------------------------------------------------
 
@@ -212,25 +207,3 @@ class ConsolidateDialog(WindowModalDialog):
         fee_policy = FeePolicy(f'feerate:{int(round(p.rate * 1000))}')
         tx = self.wallet.make_unsigned_transaction(coins=inputs, outputs=outputs, fee_policy=fee_policy, rbf=True)
         return tx
-
-    def queue(self):
-        plans = list(self.plans)
-        storage = self.plugin.get_storage(self.wallet)
-        queue = storage.setdefault('queue', [])
-        for p in plans:
-            queue.append({
-                'id': uuid.uuid4().hex[:12],
-                'kind': 'migration' if self.migration else 'consolidation',
-                'label': ' + '.join(g.title for g in p.groups),
-                'outpoints': [c.outpoint for c in p.coins],
-                'address': self._destination() if self.migration else None,
-                'amount_sat': None,
-                'deadline': None,
-                'max_feerate': None,
-                'created': int(time.time()),
-                'status': 'queued',
-            })
-        self.wallet.save_db()
-        self.accept()
-        self.plugin.on_queue_changed(self.window)
-        self.window.show_message(_('Queued {} consolidation(s). LowTide will prompt you to sign when the next low tide starts.').format(len(plans)), title='LowTide')

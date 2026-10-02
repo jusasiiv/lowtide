@@ -169,88 +169,6 @@ class TideChart(QWidget):
         QToolTip.showText(ev.globalPosition().toPoint(), txt, self)
 
 
-class PileChart(QWidget):
-    """Mempool depth by fee rate: 0.1-step bins below 2 sat/vB, coarser above."""
-
-    def __init__(self):
-        QWidget.__init__(self)
-        self.setMinimumHeight(190)
-        self.setMouseTracking(True)
-        self.bins = []  # type: List[tuple]
-        self.jump = None  # type: Optional[H.PileJump]
-        self.next_rate = None
-        self._bars = []
-
-    def set_data(self, hist: H.Hist, jump: Optional[H.PileJump], next_rate: Optional[float]):
-        self.bins = H.bins(hist) if hist else []
-        self.jump = jump
-        self.next_rate = next_rate
-        self.update()
-
-    def paintEvent(self, ev):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        w, h = self.width(), self.height()
-        left, right, top, bottom = 44, w - 10, 14, h - 34
-        self._bars = []
-        if not self.bins:
-            p.setPen(_color('text'))
-            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, _('No mempool data yet…'))
-            return
-        vmax = max(v for _, _, v in self.bins) or 1
-        n = len(self.bins)
-        bw = (right - left) / float(n)
-        p.setFont(QFont(p.font().family(), 8))
-        for tick in (0.25, 0.5, 0.75, 1.0):
-            y = bottom - tick * (bottom - top)
-            p.setPen(QPen(_color('grid'), 1, Qt.PenStyle.DotLine))
-            p.drawLine(QPointF(left, y), QPointF(right, y))
-            p.setPen(_color('text'))
-            p.drawText(QRectF(0, y - 7, left - 4, 14), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, fmt_vmb(vmax * tick))
-        for i, (lo, hi, v) in enumerate(self.bins):
-            x = left + i * bw
-            bh = (v / vmax) * (bottom - top) if v else 0
-            if self.jump and abs(lo - self.jump.rate) < 1e-6:
-                col = _color('jump')
-            elif hi <= 1.0 + 1e-9:
-                col = _color('pile')
-            else:
-                col = _color('above')
-            rect = QRectF(x + 1, bottom - bh, max(1.0, bw - 2), bh)
-            p.fillRect(rect, col)
-            self._bars.append((x, x + bw, lo, hi, v))
-            label = None
-            if abs(lo - round(lo)) < 1e-6 and (lo <= 2.0 or hi == math.inf or lo in (5, 10, 20, 50, 100)):
-                label = fmt_rate(lo) + ('+' if hi == math.inf else '')
-            elif lo in (0.5, 1.5):
-                label = fmt_rate(lo)
-            if label:
-                p.setPen(_color('text'))
-                p.drawText(QRectF(x - 20, bottom + 2, bw + 40, 14), Qt.AlignmentFlag.AlignCenter, label)
-        # Electrum minimum (1 sat/vB) marker
-        for i, (lo, hi, v) in enumerate(self.bins):
-            if abs(lo - 1.0) < 1e-6:
-                x = left + i * bw
-                p.setPen(QPen(_color('median'), 1, Qt.PenStyle.DashLine))
-                p.drawLine(QPointF(x, top), QPointF(x, bottom))
-                p.setPen(_color('median'))
-                p.drawText(QRectF(x + 2, top - 2, 160, 14), Qt.AlignmentFlag.AlignLeft, _("Electrum's minimum (1 sat/vB)"))
-                break
-        p.setPen(QPen(_color('grid'), 1))
-        p.drawLine(QPointF(left, bottom), QPointF(right, bottom))
-        p.setPen(_color('text'))
-        p.drawText(QRectF(left, bottom + 16, right - left, 14), Qt.AlignmentFlag.AlignCenter, _('fee rate (sat/vB) → mempool vsize per bin'))
-
-    def mouseMoveEvent(self, ev):
-        x = ev.position().x()
-        for x0, x1, lo, hi, v in self._bars:
-            if x0 <= x < x1:
-                rng = f"{fmt_rate(lo)}–{fmt_rate(hi)}" if hi != math.inf else f"≥{fmt_rate(lo)}"
-                QToolTip.showText(ev.globalPosition().toPoint(), f"{rng} sat/vB: {fmt_vmb(v)}", self)
-                return
-        QToolTip.hideText()
-
-
 class ForecastPanel(QDialog):
     """Non-modal window, one per wallet window."""
 
@@ -295,7 +213,6 @@ class ForecastPanel(QDialog):
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_checker(), _('Rate & deadline'))
-        self.tabs.addTab(self._build_pile(), _('Pile view'))
         self.tabs.addTab(self._build_method(), _('Method'))
         vbox.addWidget(self.tabs)
 
@@ -320,47 +237,39 @@ class ForecastPanel(QDialog):
     def _build_checker(self) -> QWidget:
         w = QWidget()
         grid = QGridLayout(w)
-        grid.addWidget(QLabel(_('If I pay')), 0, 0)
+        grid.addWidget(QLabel(_('Suggested')), 0, 0)
+        self.jump_label = WWLabel('')
+        grid.addWidget(self.jump_label, 0, 1, 1, 3)
+        self.jump_apply = QPushButton(_('Use for next send'))
+        self.jump_apply.clicked.connect(self._apply_suggested)
+        grid.addWidget(self.jump_apply, 0, 4)
+        grid.addWidget(QLabel(_('If I pay')), 1, 0)
         self.rate_e = QLineEdit()
         self.rate_e.setValidator(QDoubleValidator(0.1, 10000, 1))
         self.rate_e.setPlaceholderText('0.4')
         self.rate_e.setFixedWidth(80)
         self.rate_e.textChanged.connect(self._refresh_derived)
-        grid.addWidget(self.rate_e, 0, 1)
-        grid.addWidget(QLabel('sat/vB'), 0, 2)
+        grid.addWidget(self.rate_e, 1, 1)
+        grid.addWidget(QLabel('sat/vB'), 1, 2)
         self.rate_result = WWLabel('')
-        grid.addWidget(self.rate_result, 0, 3)
+        grid.addWidget(self.rate_result, 1, 3)
         self.rate_apply = QPushButton(_('Use for next send'))
         self.rate_apply.clicked.connect(lambda: self._apply(self._rate_input()))
-        grid.addWidget(self.rate_apply, 0, 4)
+        grid.addWidget(self.rate_apply, 1, 4)
 
-        grid.addWidget(QLabel(_('Confirmed by')), 1, 0)
+        grid.addWidget(QLabel(_('Confirmed by')), 2, 0)
         self.deadline_e = QDateTimeEdit(QDateTime.currentDateTime().addSecs(24 * 3600))
         self.deadline_e.setCalendarPopup(True)
         self.deadline_e.setDisplayFormat('ddd dd MMM HH:mm')
         self.deadline_e.dateTimeChanged.connect(self._refresh_derived)
-        grid.addWidget(self.deadline_e, 1, 1, 1, 2)
+        grid.addWidget(self.deadline_e, 2, 1, 1, 2)
         self.deadline_result = WWLabel('')
-        grid.addWidget(self.deadline_result, 1, 3)
+        grid.addWidget(self.deadline_result, 2, 3)
         self.deadline_apply = QPushButton(_('Use this rate'))
         self.deadline_apply.clicked.connect(lambda: self._apply(self._deadline_rate))
-        grid.addWidget(self.deadline_apply, 1, 4)
+        grid.addWidget(self.deadline_apply, 2, 4)
         self._deadline_rate = None
         grid.setColumnStretch(3, 1)
-        return w
-
-    def _build_pile(self) -> QWidget:
-        w = QWidget()
-        v = QVBoxLayout(w)
-        self.pile_chart = PileChart()
-        v.addWidget(self.pile_chart, 1)
-        hb = QHBoxLayout()
-        self.pile_label = WWLabel('')
-        hb.addWidget(self.pile_label, 1)
-        self.pile_apply = QPushButton('')
-        self.pile_apply.clicked.connect(lambda: self._apply(self.state.pile.rate if self.state and self.state.pile else None))
-        hb.addWidget(self.pile_apply)
-        v.addLayout(hb)
         return w
 
     def _build_method(self) -> QWidget:
@@ -412,25 +321,25 @@ class ForecastPanel(QDialog):
         else:
             self.stranded_row.hide()
         self.chart.set_data(fc, now, [(p.ts, p.rate) for p in st.past_week])
-        self.pile_chart.set_data(st.hist, st.pile, st.next_block_rate)
         if st.pile:
             e = st.eta(st.pile.rate)
             saving = max(0, int(round((1 - st.pile.rate / st.pile.ceiling_rate) * 100)))
-            self.pile_label.setText(
-                f"<b>{fmt_rate(st.pile.rate)} sat/vB</b> {_('jumps the')} {fmt_vmb(st.pile.ahead_vb)} {_('pile')}: "
-                f"{_('nearly the same place in line as')} {fmt_rate(st.pile.ceiling_rate)} sat/vB {_('for')} {saving}% {_('less')}. "
-                f"{self.plugin.fmt_eta(e, short=True)}.")
-            self.pile_label.setToolTip(
+            self.jump_label.setText(
+                f"<b>{fmt_rate(st.pile.rate)} sat/vB</b> {_('jumps the')} {fmt_vmb(st.pile.ahead_vb)} {_('pile below 1 sat/vB')}: "
+                f"{_('nearly the same place in line for')} {saving}% {_('less')}. {self.plugin.fmt_eta(e, short=True)}.")
+            self.jump_label.setToolTip(
                 f"{_('Ahead of')} {fmt_vmb(st.pile.ahead_vb)}, {_('behind')} {fmt_vmb(st.pile.behind_vb)} "
                 f"({_('paying')} {fmt_rate(st.pile.ceiling_rate)} sat/vB: {_('behind')} {fmt_vmb(st.pile.ceiling_behind_vb)}).\n"
-                f"{_('Mempool')}: {fmt_vmb(H.total_vsize(st.hist))} {_('total')}, {fmt_vmb(H.sub1_vsize(st.hist))} {_('below 1 sat/vB')}, "
-                f"{_('minimum')} {fmt_rate(st.mempool_min_fee)} sat/vB.\n" + self.plugin.fmt_eta(e, verbose=True).replace('<br>', '\n'))
-            self.pile_apply.setText(_('Use {} sat/vB for next send').format(fmt_rate(st.pile.rate)))
-            self.pile_apply.setEnabled(True)
+                + self.plugin.fmt_eta(e, verbose=True).replace('<br>', '\n'))
+            self.jump_apply.setText(_('Use {} sat/vB').format(fmt_rate(st.pile.rate)))
+            self.jump_apply.setEnabled(True)
+        elif st.next_block_rate is not None:
+            self.jump_label.setText(f"{_('Next block')}: <b>{fmt_rate(st.next_block_rate)} sat/vB</b> ({_('no floor pile to jump right now')})")
+            self.jump_apply.setText(_('Use {} sat/vB').format(fmt_rate(st.next_block_rate)))
+            self.jump_apply.setEnabled(True)
         else:
-            self.pile_label.setText(_('No floor pile right now: the mempool holds less than 1 vMB below 1 sat/vB.'))
-            self.pile_apply.setText(_('Use for next send'))
-            self.pile_apply.setEnabled(False)
+            self.jump_label.setText(_('Waiting for mempool data…'))
+            self.jump_apply.setEnabled(False)
         bt = (st.backtest or {}).get('headline') or _('Backtest pending (needs 3 months of history).')
         when = '<ul>' + ''.join(f'<li><b>{t}</b>: {d}</li>' for t, d in WHEN_TO_ACCELERATE) + '</ul>'
         self.method_label.setText(
@@ -489,6 +398,13 @@ class ForecastPanel(QDialog):
         if rate is None:
             return
         self.plugin.apply_rate(self.main_window, rate)
+
+    def _apply_suggested(self):
+        st = self.state
+        if st is None:
+            return
+        rate = st.pile.rate if st.pile else st.next_block_rate
+        self._apply(rate)
 
     def _rescue_first_stranded(self):
         stranded = self.plugin.stranded_txs(self.main_window)

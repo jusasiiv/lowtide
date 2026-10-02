@@ -29,10 +29,7 @@ from .qt_panel import ForecastPanel
 from .qt_stress import StressDialog
 from .qt_consolidate import ConsolidateDialog
 from .qt_rescue import RescueDialog
-from .qt_queue import QueueDialog
-from .core import planner as P
-from electrum.fee_policy import FeePolicy
-from electrum.transaction import PartialTxOutput
+from .nostr_alerts import NostrAlerts, parse_recipient
 
 if TYPE_CHECKING:
     from electrum.gui.qt.main_window import ElectrumWindow
@@ -78,10 +75,6 @@ class SendTabRow(QWidget):
         self.btn.setEnabled(False)
         self.btn.clicked.connect(self._use)
         hb.addWidget(self.btn)
-        self.later_btn = QPushButton(_('Later…'))
-        self.later_btn.setToolTip(_('Queue this payment for the next low tide (you sign when it is due).'))
-        self.later_btn.clicked.connect(lambda: self.plugin.queue_from_send_tab(self.window()))
-        hb.addWidget(self.later_btn)
 
     def _use(self):
         if self.rate is not None:
@@ -104,6 +97,7 @@ class SendTabRow(QWidget):
 
 class QtBridge(QObject):
     state_updated = pyqtSignal(object)
+    nostr_result = pyqtSignal(object)
 
 
 class LowTideAlert(QDialog):
@@ -138,9 +132,11 @@ class Plugin(LowTidePlugin):
         self._notified = set()
         self._alerts = []
         self._load_notified()
+        self.nostr = NostrAlerts(config, self.logger)
         self.logger.info(f'LowTide core {CORE_VERSION}')
         self.bridge = QtBridge()
         self.bridge.state_updated.connect(self._on_state, Qt.ConnectionType.QueuedConnection)
+        self.bridge.nostr_result.connect(self._on_nostr_result, Qt.ConnectionType.QueuedConnection)
         self.service = LowTideService(
             store=Store(self.data_dir), http_get=self._http_get, base_url_fn=self._base_url,
             poll_minutes_fn=lambda: self.config.LOWTIDE_POLL_MINUTES, privacy_mode_fn=lambda: bool(self.config.LOWTIDE_PRIVACY_MODE),
@@ -231,7 +227,6 @@ class Plugin(LowTidePlugin):
         m.addAction(_('Tide forecast'), lambda: self.open_panel(window))
         m.addAction(_('Wallet stress test'), lambda: self.open_stress(window))
         m.addAction(_('Consolidate at low tide…'), lambda: self.open_consolidate(window))
-        m.addAction(_('Send later queue…'), lambda: self.open_queue(window))
         m.addSeparator()
         m.addAction(_('Settings'), lambda: self.settings_dialog(window))
 
@@ -337,11 +332,6 @@ class Plugin(LowTidePlugin):
             tip.append(f"{_('Next low tide')} {_('in')} {fmt_duration(nxt.start - st.now())}, ≈{fmt_rate(nxt.rate)} sat/vB")
         if st.pile:
             tip.append(f"{_('Pile-jump rate')}: {fmt_rate(st.pile.rate)} sat/vB")
-        wallet = wst.get('wallet')
-        if wallet is not None:
-            n_q = sum(1 for it in self.queue_items(wallet) if it.get('status') == 'queued')
-            if n_q:
-                tip.append(_('{} payment(s) queued for low tide').format(n_q))
         stranded = wst.get('stranded') or []
         if stranded:
             text = f"⚠ {len(stranded)} {_('stranded')} · " + text
@@ -403,54 +393,6 @@ class Plugin(LowTidePlugin):
                 self._watch_wallet(window, wallet, wst, st)
             except Exception:
                 self.logger.exception('monitor failed')
-            try:
-                self._schedule_wallet(window, wallet, wst, st)
-            except Exception:
-                self.logger.exception('scheduler failed')
-
-    # --- send-later queue ---------------------------------------------
-
-    def queue_items(self, wallet) -> List[dict]:
-        return list(self.get_storage(wallet).get('queue') or [])
-
-    def planned_queue(self, wallet) -> List[dict]:
-        st = self.state
-        floor = max(0.1, round(st.mempool_min_fee + 0.1, 1)) if st.hist else 0.2
-        def rfd(secs):
-            e = st.rate_for_deadline(secs)
-            return e.rate if e else None
-        return P.plan_items(self.queue_items(wallet), st.forecast, time.time(), floor_rate=floor, rate_for_deadline=rfd,
-                            next_block_rate=st.next_block_rate, demo=st.demo)
-
-    def add_queue_item(self, wallet, item: dict):
-        storage = self.get_storage(wallet)
-        storage.setdefault('queue', []).append(item)
-        wallet.save_db()
-        self.on_queue_changed(self._window_for_wallet(wallet))
-
-    def remove_queue_items(self, wallet, ids: List[str]):
-        storage = self.get_storage(wallet)
-        storage['queue'] = [it for it in storage.get('queue', []) if it['id'] not in ids]
-        wallet.save_db()
-        self.on_queue_changed(self._window_for_wallet(wallet))
-
-    def _update_queue_items(self, wallet, updates: Dict[str, dict]):
-        storage = self.get_storage(wallet)
-        for it in storage.get('queue', []):
-            if it['id'] in updates:
-                it.update(updates[it['id']])
-        wallet.save_db()
-
-    def open_queue(self, window, prefill: Optional[dict] = None):
-        QueueDialog(self, window, prefill=prefill).exec()
-
-    def queue_from_send_tab(self, window):
-        st = window.send_tab
-        pi = getattr(st.payto_e, 'payment_identifier', None)
-        payto = getattr(pi, 'text', '') if pi else ''
-        amount = st.amount_e.get_amount()
-        prefill = {'payto': payto or '', 'amount_sat': int(amount) if amount else None, 'label': st.message_e.text()}
-        self.open_queue(window, prefill=prefill)
 
     def set_demo(self, key: str, on: bool):
         if on:
@@ -459,241 +401,6 @@ class Plugin(LowTidePlugin):
             self.state.demo.pop(key, None)
         self._on_state(self.state)
         self._monitor_tick()
-
-    def _schedule_wallet(self, window, wallet, wst, st: State):
-        now = time.time()
-        items = self.planned_queue(wallet)
-        if not items:
-            return
-        due = P.due_items(items, now, demo=st.demo)
-        key_due = f"due:{wallet.basename()}:{(now // 1800) if st.demo.get('low_tide_now') else max([it.get('planned_start') or 0 for it in due] or [0])}"
-        if due and key_due not in self._notified and self.notifications_enabled():
-            self._notified.add(key_due)
-            self._save_notified()
-            n = len(due)
-            msg = _('{} queued payment(s) are due: it is low tide. Prepare the batch and sign it.').format(n)
-            self.notify_all(msg, title=_('Send later'), actions=[(_('Prepare batch'), partial(self.send_due, window, False))], only_window=window)
-        try:
-            unconf = set(wallet.adb.unconfirmed_tx)
-        except Exception:
-            unconf = set()
-        for it in P.guard_items(items, now, unconf, demo=st.demo):
-            key = f"guard:{it['txid']}"
-            if key in self._notified:
-                continue
-            self._notified.add(key)
-            self._save_notified()
-            tx = wallet.db.get_transaction(it['txid'])
-            msg = _('"{}" was sent but is still unconfirmed and its deadline is near. Compare rescue options.').format(it.get('label') or it['txid'][:12])
-            self.notify_all(msg, title=_('Deadline guard'), actions=[(_('Rescue…'), partial(self.open_rescue, window, tx))], only_window=window)
-        # mark confirmed
-        updates = {}
-        for it in items:
-            if it.get('status') == 'sent' and it.get('txid'):
-                try:
-                    h = wallet.adb.get_tx_height(it['txid']).height()
-                except Exception:
-                    h = 0
-                if h > 0:
-                    updates[it['id']] = {'status': 'confirmed'}
-        if updates:
-            self._update_queue_items(wallet, updates)
-
-    def send_due(self, window, force: bool = False, parent=None):
-        """Build one batched transaction for the due payments (fresh coin selection) and open Electrum's preview."""
-        wallet = window.wallet
-        st = self.state
-        items = self.planned_queue(wallet)
-        now = time.time()
-        due = [it for it in items if it.get('status') == 'queued'] if force else P.due_items(items, now, demo=st.demo)
-        if not due:
-            (parent or window).show_message(_('Nothing is due yet.'), title='LowTide')
-            return
-        payments = [it for it in due if it.get('kind') == 'payment']
-        consols = [it for it in due if it.get('kind') in ('consolidation', 'migration')]
-        if payments:
-            rate = P.batch_rate(payments)
-            if force:
-                dls = [it['deadline'] for it in payments if it.get('deadline')]
-                if dls:
-                    e = st.rate_for_deadline(max(600.0, min(dls) - now - 1800))
-                    if e:
-                        rate = max(rate, e.rate)
-            outputs = [PartialTxOutput.from_address_and_value(it['address'], it['amount_sat']) for it in payments]
-            try:
-                tx = wallet.make_unsigned_transaction(coins=window.get_coins(nonlocal_only=True), outputs=outputs,
-                                                      fee_policy=FeePolicy(f'feerate:{int(round(rate * 1000))}'), rbf=True)
-            except Exception as e:
-                (parent or window).show_error(_('Could not build the batch') + f': {e}')
-                return
-            ids = [it['id'] for it in payments]
-            def on_closed(closed_tx, ids=ids):
-                self._after_preview(wallet, ids, closed_tx)
-            if parent is not None:
-                parent.accept()
-            window.show_transaction(tx, on_closed=on_closed)
-        for it in consols:
-            from .qt_wallet import wallet_coins
-            coins, by_op = wallet_coins(wallet)
-            inputs = [by_op[o] for o in it.get('outpoints', []) if o in by_op]
-            if len(inputs) < 1:
-                continue
-            addr = it.get('address') or wallet.get_unused_address() or wallet.get_receiving_address()
-            try:
-                tx = wallet.make_unsigned_transaction(coins=inputs, outputs=[PartialTxOutput.from_address_and_value(addr, '!')],
-                                                      fee_policy=FeePolicy(f'feerate:{int(round((it.get("planned_rate") or 0.2) * 1000))}'), rbf=True)
-            except Exception as e:
-                (parent or window).show_error(_('Could not build the consolidation') + f': {e}')
-                continue
-            if parent is not None:
-                parent.accept()
-            window.show_transaction(tx, on_closed=partial(self._after_preview, wallet, [it['id']]))
-
-    def _after_preview(self, wallet, ids: List[str], tx):
-        """Electrum's preview closed: if the tx made it into the wallet (broadcast), mark the items sent."""
-        try:
-            txid = tx.txid() if tx is not None else None
-            if txid and wallet.db.get_transaction(txid) is not None:
-                self._update_queue_items(wallet, {i: {'status': 'sent', 'txid': txid, 'sent_at': int(time.time())} for i in ids})
-                window = self._window_for_wallet(wallet)
-                if window:
-                    self.on_queue_changed(window)
-        except Exception:
-            self.logger.exception('after preview failed')
-
-    def _watch_wallet(self, window, wallet, wst, st: State):
-        now = time.time()
-        storage = self.get_storage(wallet)
-        watch = storage.setdefault('tx_watch', {})
-        try:
-            unconf = dict(wallet.adb.unconfirmed_tx)
-        except Exception:
-            unconf = {}
-        stranded = []
-        changed = False
-        for txid in list(unconf):
-            tx = wallet.db.get_transaction(txid)
-            if tx is None:
-                continue
-            fee = wallet.adb.get_tx_fee(txid)
-            vsize = tx.estimated_size()
-            rate = (fee / vsize) if (fee and vsize) else None
-            rec = watch.get(txid)
-            if rec is None:
-                e = st.eta(rate) if (rate and st.hist) else None
-                rec = {'first_seen': int(now), 'rate': rate, 'p90_s': (e.p90_s if e else None), 'median_s': (e.median_s if e else None)}
-                watch[txid] = rec
-                changed = True
-            age = now - rec['first_seen']
-            reasons = []
-            expected = rec.get('p90_s')
-            if expected is not None and age > expected and age > 1800:
-                reasons.append('stranded')
-            elif expected is None and age > 24 * 3600:
-                reasons.append('stranded')
-            if rate is not None and st.hist and rate < st.mempool_min_fee - 1e-9:
-                reasons.append('evicting')
-            if age > 12 * 86400:
-                reasons.append('expiring')
-            if st.demo.get('stranded_now') and not reasons:
-                reasons.append('stranded')
-            if reasons:
-                stranded.append(txid)
-                key = f'stranded:{txid}:{reasons[0]}'
-                if key not in self._notified and self.notifications_enabled():
-                    self._notified.add(key)
-                    self._save_notified()
-                    label = wallet.get_label_for_txid(txid) or txid[:16] + '…'
-                    if 'evicting' in reasons:
-                        msg = _('"{}" pays {} sat/vB, below the mempool minimum of {} sat/vB: nodes are dropping it. Bump or rebroadcast it.').format(
-                            label, fmt_rate(rate), fmt_rate(st.mempool_min_fee))
-                    elif 'expiring' in reasons:
-                        msg = _('"{}" is close to the 2-week mempool expiry. Bump or rebroadcast it.').format(label)
-                    else:
-                        msg = _('"{}" has waited longer than the forecast expected ({}). Open it to compare rescue options.').format(label, fmt_duration(age))
-                    self.notify_all(msg, title=_('Stranded transaction'),
-                                    actions=[(_('Rescue…'), partial(self.open_rescue, window, tx))], only_window=window)
-        # forget confirmed ones
-        for txid in list(watch):
-            if txid not in unconf:
-                watch.pop(txid, None)
-                changed = True
-        if changed:
-            try:
-                wallet.save_db()
-            except Exception:
-                pass
-        if stranded != wst.get('stranded'):
-            wst['stranded'] = stranded
-            btn = self._status_buttons.get(id(window.statusBar()))
-            if btn:
-                self._update_status_button(btn, st)
-            panel = wst.get('panel')
-            if panel is not None and panel.isVisible():
-                panel.update_state(st)
-
-    def stranded_txs(self, window) -> List[str]:
-        return list((self._windows.get(window) or {}).get('stranded') or [])
-
-    def record_acceleration(self, wallet, txid: str, fields: dict):
-        storage = self.get_storage(wallet)
-        acc = storage.setdefault('accelerations', {})
-        rec = acc.setdefault(txid, {})
-        rec.update(fields)
-        rec['updated'] = int(time.time())
-        try:
-            wallet.save_db()
-        except Exception:
-            pass
-
-    # --- actions ------------------------------------------------------
-
-    def _window_for_wallet(self, wallet):
-        for w, st in self._windows.items():
-            if st.get('wallet') is wallet:
-                return w
-        return None
-
-    def _on_status_clicked(self, btn: StatusButton):
-        self.open_panel(btn.window())
-
-    def open_panel(self, window):
-        wst = self._windows.get(window)
-        if wst is None:
-            for w in self._windows:
-                window, wst = w, self._windows[w]
-                break
-            else:
-                return
-        panel = wst.get('panel')
-        if panel is None:
-            panel = ForecastPanel(self, window)
-            wst['panel'] = panel
-        panel.update_state(self.state)
-        panel.show()
-        panel.raise_()
-        panel.activateWindow()
-
-    def open_stress(self, window):
-        StressDialog(self, window).exec()
-
-    def open_consolidate(self, window, *, preselected=None, migration=False):
-        ConsolidateDialog(self, window, preselected=preselected, migration=migration).exec()
-
-    def open_rescue(self, window, tx: Transaction):
-        RescueDialog(self, window, tx).exec()
-
-    def open_rescue_txid(self, window, txid: str):
-        tx = window.wallet.db.get_transaction(txid)
-        if tx is not None:
-            self.open_rescue(window, tx)
-
-    def _rescue_from_dialog(self, d: 'TxDialog'):
-        window = d.main_window
-        self.open_rescue(window, d.tx)
-
-    def on_queue_changed(self, window):
-        self._on_state(self.state)
 
     def apply_rate(self, window, rate: float):
         """Make Electrum's next send dialog open at this rate (sub-1 included)."""
@@ -714,6 +421,11 @@ class Plugin(LowTidePlugin):
     def notify_all(self, message: str, *, title: str = 'LowTide', actions: Optional[List[tuple]] = None, only_window=None):
         """Desktop notification + in-app cue."""
         windows = [only_window] if only_window is not None else list(self._windows)
+        if self.nostr.enabled():
+            try:
+                self.nostr.send(f'LowTide · {title}\n{message}')
+            except Exception:
+                self.logger.exception('nostr alert failed')
         for window in windows:
             try:
                 desktop_notify(window, message, title=title, use_osascript=bool(self.config.LOWTIDE_OSASCRIPT_NOTIFY))
@@ -735,13 +447,20 @@ class Plugin(LowTidePlugin):
             return
         self._notified.add(key)
         self._save_notified()
-        msg = _('Low tide has started: ≈{} sat/vB until {}. A good time for consolidation and queued payments.').format(
+        msg = _('Low tide has started: ≈{} sat/vB until {}. A good time for consolidation and non-urgent sends.').format(
             fmt_rate(cur.rate), fmt_time(cur.end))
         actions = [(_('Open forecast'), lambda: self.open_panel(next(iter(self._windows), None)))]
         for w in list(self._windows):
             actions.append((_('Consolidate…'), partial(self.open_consolidate, w)))
             break
         self.notify_all(msg, title=_('Low tide'), actions=actions)
+
+    def _on_nostr_result(self, payload):
+        label, ok, info = payload
+        try:
+            label.setText((_('Sent') + ' ✓') if ok else (_('Failed') + f': {info}'))
+        except RuntimeError:
+            pass
 
     def _save_notified(self):
         try:
@@ -797,7 +516,7 @@ class Plugin(LowTidePlugin):
         poll_e = QLineEdit(str(self.config.LOWTIDE_POLL_MINUTES))
         poll_e.setFixedWidth(60)
         grid.addWidget(poll_e, 1, 1)
-        notif_cb = QCheckBox(_('Desktop notifications (low tide, stranded transactions, due payments)'))
+        notif_cb = QCheckBox(_('Desktop notifications (low tide, stranded transactions)'))
         notif_cb.setChecked(bool(self.config.LOWTIDE_NOTIFICATIONS))
         grid.addWidget(notif_cb, 2, 0, 1, 2)
         osa_cb = QCheckBox(_('Also use the macOS notification center'))
@@ -806,10 +525,23 @@ class Plugin(LowTidePlugin):
         privacy_cb = QCheckBox(_('Privacy mode: live mempool data from the Electrum server only (history still needs a mempool instance)'))
         privacy_cb.setChecked(bool(self.config.LOWTIDE_PRIVACY_MODE))
         grid.addWidget(privacy_cb, 4, 0, 1, 2)
-        demo_cb = QCheckBox(_('Demo mode (developer switches in the forecast panel)'))
+        demo_cb = QCheckBox(_('Demo mode (developer switches below)'))
         demo_cb.setChecked(bool(self.config.LOWTIDE_DEMO_MODE))
         grid.addWidget(demo_cb, 5, 0, 1, 2)
         vbox.addLayout(grid)
+        if self.demo_mode():
+            demo_hb = QHBoxLayout()
+            demo_hb.addWidget(QLabel(_('Demo switches') + ':'))
+            lt_cb = QCheckBox(_('Low tide now'))
+            lt_cb.setChecked(bool(self.state.demo.get('low_tide_now')))
+            lt_cb.toggled.connect(lambda on: self.set_demo('low_tide_now', on))
+            demo_hb.addWidget(lt_cb)
+            st_cb = QCheckBox(_('Stranded transaction'))
+            st_cb.setChecked(bool(self.state.demo.get('stranded_now')))
+            st_cb.toggled.connect(lambda on: self.set_demo('stranded_now', on))
+            demo_hb.addWidget(st_cb)
+            demo_hb.addStretch(1)
+            vbox.addLayout(demo_hb)
         test_hbox = QHBoxLayout()
         test_btn = QPushButton(_('Send test notification'))
         def do_test():
@@ -829,10 +561,46 @@ class Plugin(LowTidePlugin):
         test_hbox.addWidget(reset_btn)
         test_hbox.addStretch(1)
         vbox.addLayout(test_hbox)
+        nostr_grid = QGridLayout()
+        nostr_cb = QCheckBox(_('Also send alerts as encrypted Nostr DMs to my phone'))
+        nostr_cb.setChecked(bool(self.config.LOWTIDE_NOSTR_ENABLED))
+        nostr_grid.addWidget(nostr_cb, 0, 0, 1, 2)
+        nostr_grid.addWidget(QLabel(_('Recipient npub')), 1, 0)
+        npub_e = QLineEdit(self.config.LOWTIDE_NOSTR_NPUB)
+        npub_e.setPlaceholderText('npub1…')
+        nostr_grid.addWidget(npub_e, 1, 1)
+        nostr_grid.addWidget(QLabel(_('Relays (comma separated)')), 2, 0)
+        relays_e = QLineEdit(self.config.LOWTIDE_NOSTR_RELAYS or '')
+        relays_e.setPlaceholderText(_("empty = Electrum's Nostr relays"))
+        nostr_grid.addWidget(relays_e, 2, 1)
+        sender = WWLabel(_('Sender (add it as a contact so the DM shows up): ') + self.nostr.our_npub())
+        sender.setStyleSheet('color: gray')
+        sender.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        nostr_grid.addWidget(sender, 3, 0, 1, 2)
+        nostr_status = QLabel('')
+        nostr_grid.addWidget(nostr_status, 4, 1)
+        test_dm_btn = QPushButton(_('Send test DM'))
+        def do_test_dm():
+            rec = parse_recipient(npub_e.text())
+            if not rec:
+                nostr_status.setText(_('Enter a valid npub first.'))
+                return
+            self.config.LOWTIDE_NOSTR_NPUB = npub_e.text().strip()
+            self.config.LOWTIDE_NOSTR_RELAYS = relays_e.text().strip()
+            nostr_status.setText(_('Sending…'))
+            def on_done(ok, info):
+                self.bridge.nostr_result.emit((nostr_status, ok, info))
+            self.nostr.send(_('LowTide test: low tide starts now ≈0.5 sat/vB (sent {})').format(time.strftime('%H:%M')), recipient_hex=rec, on_done=on_done)
+        test_dm_btn.clicked.connect(do_test_dm)
+        nostr_grid.addWidget(test_dm_btn, 4, 0)
+        vbox.addLayout(nostr_grid)
         vbox.addWidget(WWLabel(_('Alerts only work while Electrum is running.')))
         vbox.addLayout(Buttons(CancelButton(d), OkButton(d)))
         if not d.exec():
             return
+        self.config.LOWTIDE_NOSTR_ENABLED = nostr_cb.isChecked()
+        self.config.LOWTIDE_NOSTR_NPUB = npub_e.text().strip()
+        self.config.LOWTIDE_NOSTR_RELAYS = relays_e.text().strip()
         old_url = self.config.LOWTIDE_MEMPOOL_URL
         self.config.LOWTIDE_MEMPOOL_URL = url_e.text().strip() or 'https://mempool.space'
         try:

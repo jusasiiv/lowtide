@@ -168,3 +168,9 @@ Proposed live script (what to build for):
 | 2:30–3:00 | rescue on the stuck tx: Wait / small RBF / RBF / CPFP / Accelerate side by side, four "when to accelerate" cases | fully implemented, pays from Lightning, not spending €57 on stage |
 
 Send-later (queue two, demo switch, one batched preview) is the first thing to add live if a group runs ahead of time; otherwise it is the screenshot sequence. Submitting (making the repo public, uploading) is the user's step before 15:30; the zip, README and screenshots are ready at 13:00.
+
+## 12. Scope changes (Fri Oct 2, 13:00)
+
+- **Send-later queue removed.** Electrum 4.8 already batches new payments into an unconfirmed transaction, and the queue was the hardest feature to explain in three minutes. The low-tide story is carried by the notification, consolidation and the one-click sub-1 rate instead.
+- **Pile view chart removed**; the pile-jump rate stays as a one-line suggestion with its ETA at the top of "Rate & deadline".
+- **Nostr DM alerts added** (F5, `nostr_alerts.py`): NIP-04 encrypted kind-4 DMs through Electrum's bundled aionostr, Electrum's relays and proxy; sender key generated once; recipient npub and relays in Settings; sent for low tide, stranded transactions and acceleration results. Verified live against the default relays.

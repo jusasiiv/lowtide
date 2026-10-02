@@ -1,6 +1,6 @@
 # LowTide — send, consolidate and rescue at low tide
 
-An [Electrum](https://electrum.org) 4.8 desktop plugin that turns the fee tide into a plan: it forecasts when confirming is cheap, applies fee rates Electrum itself cannot reach (below 1 sat/vB), stress-tests your wallet against the next fee spike, consolidates coins without linking what you kept separate, rescues stuck transactions with an honest side-by-side comparison, and time-shifts non-urgent payments to the next low tide. Aggregate network data only, Tor-friendly, works with your own mempool instance, no new dependencies, and **you always sign**.
+An [Electrum](https://electrum.org) 4.8 desktop plugin that turns the fee tide into a plan: it forecasts when confirming is cheap, applies fee rates Electrum itself cannot reach (below 1 sat/vB), stress-tests your wallet against the next fee spike, consolidates coins without linking what you kept separate, and rescues stuck transactions with an honest side-by-side comparison. Aggregate network data only, Tor-friendly, works with your own mempool instance, no new dependencies, and **you always sign**.
 
 Built at bitcoin++ Berlin 2026 (payments edition) for the Electrum plugin challenge and the mempool.space accelerator challenge.
 
@@ -26,9 +26,9 @@ Fees are bimodal: almost free, or absurd. Housekeeping belongs in the free regim
 - **Status bar indicator**, always visible: `⛵ 1.1 sat/vB · low tide Sat 03–16`. Green during low tide. Amber with "server blocks sub-1" when the connected Electrum server refuses fees below 1 sat/vB, with instructions to switch.
 - **Forecast panel** (click the indicator, or Tools ▸ LowTide): the next 7 days hour by hour with an uncertainty band, low-tide windows highlighted, a "now" marker and the past week for context.
 - **Rate checker**: enter a rate, get "likely by …" with a 90% bound. **Deadline planner**: enter "confirmed by", get the cheapest safe rate now and the better time to wait for.
-- **Pile view**: mempool depth by fee rate in 0.1 sat/vB steps, the floor pile, Electrum's 1 sat/vB minimum, and the pile-jump rate. One click applies it to your next send: Electrum's own confirm dialog opens prefilled, sub-1 included.
-- **Send tab row**: the live suggestion and "Use" / "Later…" buttons.
-- **Notifications** when low tide starts (desktop banner plus an in-app cue), at most once per window.
+- **Pile-jump suggestion**: the cheapest 0.1-step rate that lands within half a block of paying 1 sat/vB, with its ETA. One click applies it to your next send: Electrum's own confirm dialog opens prefilled, sub-1 included.
+- **Send tab row**: the live suggestion and a "Use" button.
+- **Notifications** when low tide starts (desktop banner plus an in-app cue), at most once per window. Optionally also as an encrypted Nostr DM to your phone.
 
 **Method, in one sentence:** fees follow the week, so LowTide learns what each hour of the week has cost over the last 12 weeks, scales that by how today is running, and calls a stretch "low tide" when it is clearly cheaper than the rest of the coming week.
 
@@ -36,7 +36,7 @@ Fees are bimodal: almost free, or absurd. Housekeeping belongs in the free regim
 
 **Resolution below 1 sat/vB:** mempool.space history cannot resolve below 1 sat/vB, so sub-1 advice comes from the live fee histogram (fine-grained) and LowTide records its own 10-minute snapshots to build sub-1 history over time. It works offline from cached data and shows "data as of …".
 
-![Pile view](demo/screenshots/02-pile-view.png)
+![Rate and deadline](demo/screenshots/02-rate-deadline.png)
 
 ### Wallet stress test and tech check
 
@@ -46,7 +46,7 @@ What it costs to spend every coin now, at the next low tide, at the real spike l
 
 ### Privacy-aware consolidation
 
-Coins with different labels are never merged by default; the dialog shows exactly what would become linked if you override. Consolidation is never urgent, so it defaults to the floor of the mempool (0.1–0.2 sat/vB). The contrast is shown plainly: 20 native segwit inputs cost ~280 sats at 0.2 sat/vB and ~140,000 sats at a 100 sat/vB spike. "Prepare now" opens Electrum's transaction preview; "Queue for low tide" makes it a send-later item. Also in the Coins tab context menu. Frozen and unconfirmed coins are skipped; hardware and multisig wallets sign through Electrum's normal flow.
+Coins with different labels are never merged by default; the dialog shows exactly what would become linked if you override. Consolidation is never urgent, so it defaults to the floor of the mempool (0.1–0.2 sat/vB). The contrast is shown plainly: 20 native segwit inputs cost ~280 sats at 0.2 sat/vB and ~140,000 sats at a 100 sat/vB spike. "Prepare now" opens Electrum's transaction preview. Also in the Coins tab context menu. Frozen and unconfirmed coins are skipped; hardware and multisig wallets sign through Electrum's normal flow.
 
 ![Consolidation](demo/screenshots/04-consolidation.png)
 
@@ -67,12 +67,6 @@ LowTide recommends the cheapest option that meets your deadline and says why. A 
 The accelerator flow is complete: estimate → pick a bid → explicit confirmation of the total (bid + base fee + size fee) → invoice → pay from this wallet's Lightning (second confirmation) or show the BOLT11 and QR → track status and notify. Records are kept per transaction. Verified against the live API: a 2,000 sat bid with the 75,000 sat base fee produced an invoice that decodes to exactly 77,000 sats. **Nothing is ever paid without your explicit confirmation**, and the txid is sent to mempool.space only when you press "Get estimate".
 
 ![Rescue](demo/screenshots/05-rescue.png)
-
-### Send later
-
-Queue on-chain payments (address or BIP21, amount, label, "confirmed by" deadline, optional max rate). LowTide puts each into the best low-tide window before its deadline and re-plans whenever the forecast updates. When a window arrives it notifies you and builds **one batched transaction** for everything due, with fresh coin selection, in Electrum's standard preview: you sign and broadcast. Missed windows prompt on the next start; a sent batch that is still unconfirmed as its deadline nears opens the rescue dialog. The queue lives in the wallet file.
-
-![Send later](demo/screenshots/06-send-later.png)
 
 ## When is acceleration the right call?
 
@@ -105,22 +99,22 @@ ln -s /path/to/lowtide/lowtide /path/to/electrum/electrum/plugins/lowtide
 
 Then enable LowTide under Tools ▸ Plugins. Never use your everyday data folder for testing; pass `-D` to Electrum.
 
-Settings (Tools ▸ LowTide ▸ Settings): mempool instance URL, refresh interval, notifications, privacy mode, demo mode (adds "low tide now", "deadline approaching" and "stranded" switches to the send-later dialog).
+Settings (Tools ▸ LowTide ▸ Settings): mempool instance URL, refresh interval, notifications, Nostr DM alerts (recipient npub, relays), privacy mode, demo mode ("low tide now" and "stranded" switches for rehearsals).
 
 ## Development
 
 ```bash
-python -m unittest discover -s tests -t .      # 50 tests on recorded fixtures, stdlib only
+python -m unittest discover -s tests -t .      # unit tests on recorded fixtures, stdlib only
 python scripts/fetch_fixtures.py               # re-record live mempool.space responses
 python scripts/dev_fake_wallets.py <electrum> <datadir>   # wallets with fake coins and stuck txs, for --offline GUI testing
 scripts/build_zip.sh                           # dist/lowtide-0.1.0.zip via Electrum's contrib/make_plugin
 ```
 
-`lowtide/core/` is pure Python (histogram math, history merge, hour-of-week forecast, ETA model, backtest, stress test, consolidation grouping, rescue comparison, accelerator client, planner). `service.py` is the one background thread; the `qt_*.py` modules are the UI. See `TECH_PLAN.md` for the design and `TEST_CHECKLIST.md` for the manual checks.
+`lowtide/core/` is pure Python (histogram math, history merge, hour-of-week forecast, ETA model, backtest, stress test, consolidation grouping, rescue comparison, accelerator client). `service.py` is the one background thread; the `qt_*.py` modules are the UI. See `TECH_PLAN.md` for the design and `TEST_CHECKLIST.md` for the manual checks.
 
 ## Out of scope (for now)
 
-Android/QML, CLI commands, pre-signed fee ladders, Taproot, Lightning beyond paying an acceleration invoice, Nostr alerts.
+Android/QML, CLI commands, pre-signed fee ladders, a send-later queue (Electrum 4.8 already batches new payments into an unconfirmed transaction), Taproot, Lightning beyond paying an acceleration invoice.
 
 ## License
 
