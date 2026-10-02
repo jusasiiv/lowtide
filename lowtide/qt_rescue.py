@@ -106,6 +106,9 @@ class RescueDialog(WindowModalDialog):
 
         self.reco = WWLabel('')
         vbox.addWidget(self.reco)
+        self.accel_status = WWLabel('')
+        self.accel_status.setStyleSheet('color: gray')
+        vbox.addWidget(self.accel_status)
 
         when = '<b>' + _('When is acceleration the right call?') + '</b><ul>' + ''.join(
             f'<li><b>{t}</b>: {d}</li>' for t, d in WHEN_TO_ACCELERATE) + '</ul>'
@@ -117,6 +120,8 @@ class RescueDialog(WindowModalDialog):
         self.estimating = False
         if not plugin.accelerator_available():
             self.estimate_error = _('mainnet only')
+        elif not plugin.network_available():
+            self.estimate_error = _('offline')
         self.refresh()
 
     def _update_head(self):
@@ -176,7 +181,7 @@ class RescueDialog(WindowModalDialog):
         elif self.estimating:
             accel_reason = _('estimating…')
         elif not self.estimate_error:
-            accel_reason = _('cost not fetched yet')
+            accel_reason = _('press Get estimate')
         self.options = R.compare(f, eta_fn=lambda r: st.eta(r), next_block_rate=st.next_block_rate, pile_rate=st.pile.rate if st.pile else None,
                                  deadline_rate=deadline_rate, mempool_min_fee=st.mempool_min_fee, accel_total=accel_total,
                                  accel_reason=accel_reason, accel_eta=accel_eta)
@@ -212,10 +217,10 @@ class RescueDialog(WindowModalDialog):
                 elif rec.option is o:
                     font = it.font(); font.setBold(True); it.setFont(font)
                 self.table.setItem(i, j, it)
-            if o.key == 'accelerate' and self.estimate is None and not self.estimate_error:
+            if o.key == 'accelerate' and self.estimate is None:
                 btn = QPushButton(_('Get estimate'))
                 btn.setToolTip(_('Sends this txid to mempool.space to price an acceleration.'))
-                btn.setEnabled(not self.estimating)
+                btn.setEnabled(not self.estimating and self.plugin.accelerator_available() and self.plugin.network_available())
                 btn.clicked.connect(self._fetch_estimate)
             else:
                 btn = QPushButton(_('Choose'))
@@ -226,6 +231,21 @@ class RescueDialog(WindowModalDialog):
             self.reco.setText(f"<b>{_('Recommended')}: {rec.option.title}</b> — {rec.why}")
         else:
             self.reco.setText(rec.why)
+        if self.estimate and not self.estimate.unavailable:
+            est = self.estimate
+            self.accel_status.setText(_('Accelerator quote: {} = bid {} + base fee {}{}. Mined by the pools in mempool\'s program, usually within a few blocks.').format(
+                fmt_sats_fiat(self.window, est.total(est.options[0])), f'{est.options[0]:,}', f'{est.base_fee:,}',
+                f' + {est.vsize_fee:,} size fee' if est.vsize_fee else ''))
+        elif self.estimating:
+            self.accel_status.setText(_('Asking mempool.space for an acceleration quote…'))
+        elif self.estimate_error == _('offline'):
+            self.accel_status.setText(_('Accelerator: no network connection, so no quote can be fetched. Reconnect and press Get estimate.'))
+        elif self.estimate_error == _('mainnet only'):
+            self.accel_status.setText(_('Accelerator: available on mainnet only (mempool.space does not accelerate test networks).'))
+        elif self.estimate_error:
+            self.accel_status.setText(_('Accelerator') + ': ' + self.estimate_error + '. ' + _('Press Get estimate to retry.'))
+        else:
+            self.accel_status.setText(_('Accelerator: press Get estimate to fetch a quote. Only then is the txid sent to mempool.space.'))
 
     # --- actions ------------------------------------------------------
 
