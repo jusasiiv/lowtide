@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Callable, List, Optional
 from PyQt6.QtCore import Qt, QTimer, QDateTime, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QPolygonF, QFont, QDoubleValidator
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget, QWidget, QLineEdit,
-                             QPushButton, QDateTimeEdit, QGridLayout, QToolTip, QSizePolicy, QFrame)
+                             QPushButton, QDateTimeEdit, QGridLayout, QToolTip, QSizePolicy, QFrame, QTextBrowser)
 
 from electrum.i18n import _
 from electrum.gui.qt.util import WWLabel, Buttons, CloseButton
@@ -275,10 +275,12 @@ class ForecastPanel(QDialog):
     def _build_method(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
-        self.method_label = WWLabel('')
-        self.method_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        v.addWidget(self.method_label)
-        v.addStretch(1)
+        v.setContentsMargins(0, 0, 0, 0)
+        self.method_label = QTextBrowser()
+        self.method_label.setOpenExternalLinks(True)
+        self.method_label.setFrameShape(QFrame.Shape.NoFrame)
+        self.method_label.setMinimumHeight(140)
+        v.addWidget(self.method_label, 1)
         return w
 
     # --- updates ------------------------------------------------------
@@ -342,7 +344,7 @@ class ForecastPanel(QDialog):
             self.jump_apply.setEnabled(False)
         bt = (st.backtest or {}).get('headline') or _('Backtest pending (needs 3 months of history).')
         when = '<ul>' + ''.join(f'<li><b>{t}</b>: {d}</li>' for t, d in WHEN_TO_ACCELERATE) + '</ul>'
-        self.method_label.setText(
+        self.method_label.setHtml(
             f"<b>{_('Method')}</b><br>{fc.method if fc else ''}<br><br>"
             f"<b>{_('Accuracy')}</b><br>{bt}<br><br>"
             f"<b>{_('When is acceleration the right call?')}</b>{when}"
