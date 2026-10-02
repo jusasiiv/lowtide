@@ -42,6 +42,14 @@ def fake_funding_tx(address: str, value: int, fee_vb: float = 1.0) -> Transactio
 STUCK_DEST = 'bc1qjjderq60fw4427lpl4enqze2qrn0pp8gv06cy0'
 
 
+def mark_unconfirmed(wallet, txid: str, addr: str) -> None:
+    """Persist 'unconfirmed' (height 0) so it survives a reload: Electrum restores it from address history."""
+    hist = [tuple(x) for x in wallet.db.get_addr_history(addr)]
+    if (txid, 0) not in hist:
+        hist.append((txid, 0))
+    wallet.db.set_addr_history(addr, hist)
+
+
 def make_wallet(name: str, seed_type: str, coins, stuck: bool = False):
     coins_spec = coins
     path = os.path.join(datadir, 'wallets', name)
@@ -69,10 +77,13 @@ def make_wallet(name: str, seed_type: str, coins, stuck: bool = False):
         wallet.sign_transaction(tx, None)
         wallet.adb.receive_tx_callback(tx, tx_height=TX_HEIGHT_UNCONFIRMED)
         wallet.set_label(tx.txid(), 'stuck payment (0.2 sat/vB)')
+        mark_unconfirmed(wallet, tx.txid(), coins[0].address)
         # an incoming payment someone else underpaid (~0.3 sat/vB), unconfirmed
-        inc = fake_funding_tx(addrs[len(coins_spec) + 1], 25_000, fee_vb=0.3)
+        inc_addr = addrs[len(coins_spec) + 1]
+        inc = fake_funding_tx(inc_addr, 25_000, fee_vb=0.3)
         wallet.adb.receive_tx_callback(inc, tx_height=TX_HEIGHT_UNCONFIRMED)
         wallet.set_label(inc.txid(), 'incoming, underpaid')
+        mark_unconfirmed(wallet, inc.txid(), inc_addr)
     wallet.save_db()
     utxos = wallet.get_utxos()
     print(f'{name}: {wallet.txin_type}, {len(utxos)} coins, {sum(u.value_sats() for u in utxos):,} sats, seed: {d["seed"]}')

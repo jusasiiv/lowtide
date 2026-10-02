@@ -23,7 +23,9 @@ class TxFacts(NamedTuple):
 
     @property
     def rate(self) -> float:
-        return self.fee / self.vsize if self.vsize else 0.0
+        if self.fee < 0 or not self.vsize:
+            return 0.0
+        return self.fee / self.vsize
 
 
 class Option(NamedTuple):
@@ -44,7 +46,7 @@ EtaFn = Callable[[float], Optional[Eta]]
 
 
 def _bump_cost(facts: TxFacts, target: float) -> int:
-    return max(0, int(math.ceil(target * facts.vsize)) - facts.fee)
+    return max(0, int(math.ceil(target * facts.vsize)) - max(0, facts.fee))
 
 
 def _min_bump_rate(facts: TxFacts) -> float:
@@ -57,8 +59,8 @@ def compare(facts: TxFacts, *, eta_fn: EtaFn, next_block_rate: Optional[float], 
             accel_eta: Optional[Eta] = None) -> List[Option]:
     opts = []
     # Wait
-    e = eta_fn(facts.rate)
-    evicting = facts.rate < mempool_min_fee - 1e-9
+    e = eta_fn(facts.rate) if facts.fee >= 0 else None
+    evicting = facts.fee >= 0 and facts.rate < mempool_min_fee - 1e-9
     expires_in = MEMPOOL_EXPIRY_S - facts.age_s
     note = ''
     if evicting:
@@ -94,7 +96,7 @@ def compare(facts: TxFacts, *, eta_fn: EtaFn, next_block_rate: Optional[float], 
     child_vb = CPFP_CHILD_VB.get(facts.script_type, 150.0)
     if target is not None:
         pkg_target = max(quantize(target), FLOOR_RATE)
-        child_fee = max(0, int(math.ceil(pkg_target * (facts.vsize + child_vb))) - facts.fee)
+        child_fee = max(0, int(math.ceil(pkg_target * (facts.vsize + child_vb))) - max(0, facts.fee))
         avail, reason = facts.can_cpfp, ''
         if not facts.can_cpfp:
             reason = 'no output of ours to spend'

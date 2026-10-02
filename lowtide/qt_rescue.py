@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTa
 
 from electrum.i18n import _
 from electrum.transaction import Transaction, PartialTransaction
-from electrum.util import CannotBumpFee, CannotCPFP
+from electrum.wallet import CannotBumpFee, CannotCPFP
 from electrum.gui.qt.util import WindowModalDialog, Buttons, CloseButton, CancelButton, OkButton, WWLabel
 from electrum.gui.qt.qrcodewidget import QRCodeWidget
 from electrum.gui.common_qt.util import TaskThread
@@ -37,7 +37,7 @@ def tx_facts(plugin, window, tx: Transaction) -> R.TxFacts:
     info = wallet.get_tx_info(tx)
     fee = info.fee
     if fee is None:
-        fee = wallet.adb.get_tx_fee(tx.txid()) or 0
+        fee = wallet.adb.get_tx_fee(tx.txid())
     vsize = tx.estimated_size()
     ts = info.tx_mined_status.timestamp
     first_seen = plugin.first_seen(wallet, tx.txid())
@@ -51,8 +51,9 @@ def tx_facts(plugin, window, tx: Transaction) -> R.TxFacts:
         ln = 0
     delta = wallet.get_wallet_delta(tx)
     relay = plugin.relay_rate()
-    return R.TxFacts(txid=tx.txid(), vsize=vsize, fee=int(fee), age_s=age, can_bump=bool(info.can_bump), can_cpfp=bool(info.can_cpfp),
-                     script_type=script_type, has_lightning_sats=ln, incoming=not delta.is_any_input_ismine, relay_rate=relay)
+    return R.TxFacts(txid=tx.txid(), vsize=vsize, fee=int(fee) if fee is not None else -1, age_s=age, can_bump=bool(info.can_bump),
+                     can_cpfp=bool(info.can_cpfp), script_type=script_type, has_lightning_sats=ln,
+                     incoming=not delta.is_any_input_ismine, relay_rate=relay)
 
 
 class RescueDialog(WindowModalDialog):
@@ -73,9 +74,9 @@ class RescueDialog(WindowModalDialog):
         vbox = QVBoxLayout(self)
         f = self.facts
         kind = _('incoming payment') if f.incoming else _('your payment')
-        head = QLabel(f"<b>{tx.txid()[:16]}…</b> — {kind}, <b>{fmt_rate(f.rate)} sat/vB</b> ({f.fee:,} sats, {f.vsize} vB), "
-                      f"{_('unconfirmed for')} {fmt_duration(f.age_s)}")
-        vbox.addWidget(head)
+        self.head = QLabel('')
+        vbox.addWidget(self.head)
+        self._update_head()
         self.safety = WWLabel('')
         self.safety.setStyleSheet('color: #b06000')
         vbox.addWidget(self.safety)
@@ -113,26 +114,42 @@ class RescueDialog(WindowModalDialog):
         vbox.addWidget(when_label)
         vbox.addLayout(Buttons(CloseButton(self)))
 
+        self.estimating = False
+        if not plugin.accelerator_available():
+            self.estimate_error = _('mainnet only')
         self.refresh()
-        if plugin.accelerator_available() and plugin.network_available():
-            self._fetch_estimate()
-        else:
-            self.estimate_error = _('mainnet only') if not plugin.accelerator_available() else _('offline')
-            self.refresh()
+
+    def _update_head(self):
+        f = self.facts
+        kind = _('incoming payment') if f.incoming else _('your payment')
+        rate = f"<b>{fmt_rate(f.rate)} sat/vB</b> ({f.fee:,} sats, {f.vsize} vB)" if f.fee >= 0 else _('fee unknown until the estimate is fetched')
+        self.head.setText(f"<b>{self.tx.txid()[:16]}…</b> — {kind}, {rate}, {_('unconfirmed for')} {fmt_duration(f.age_s)}")
 
     # --- data ---------------------------------------------------------
 
     def _fetch_estimate(self):
+        if not self.plugin.network_available():
+            self.estimate_error = _('offline')
+            self.refresh()
+            return
         client = self.plugin.accelerator_client()
         txid = self.tx.txid()
+        self.estimate_error = ''
+        self.estimating = True
+        self.refresh()
         def task():
             return client.estimate(txid)
         def on_success(est):
+            self.estimating = False
             self.estimate = est
             if est.unavailable:
                 self.estimate_error = _('not eligible for acceleration')
+            if self.facts.fee < 0 and est.effective_fee:
+                self.facts = self.facts._replace(fee=est.effective_fee, vsize=est.effective_vsize or self.facts.vsize)
+                self._update_head()
             self.refresh()
         def on_error(exc_info):
+            self.estimating = False
             self.estimate_error = _('estimate unavailable') + f' ({exc_info[1]})'
             self.refresh()
         self._thread = TaskThread(self)
@@ -156,8 +173,10 @@ class RescueDialog(WindowModalDialog):
             accel_total = self.estimate.total(self.estimate.options[0])
             if st.next_block_rate is not None:
                 accel_eta = st.eta(max(st.next_block_rate, self.estimate.target_rate))
-        elif not self.estimate_error:
+        elif self.estimating:
             accel_reason = _('estimating…')
+        elif not self.estimate_error:
+            accel_reason = _('cost not fetched yet')
         self.options = R.compare(f, eta_fn=lambda r: st.eta(r), next_block_rate=st.next_block_rate, pile_rate=st.pile.rate if st.pile else None,
                                  deadline_rate=deadline_rate, mempool_min_fee=st.mempool_min_fee, accel_total=accel_total,
                                  accel_reason=accel_reason, accel_eta=accel_eta)
@@ -193,9 +212,15 @@ class RescueDialog(WindowModalDialog):
                 elif rec.option is o:
                     font = it.font(); font.setBold(True); it.setFont(font)
                 self.table.setItem(i, j, it)
-            btn = QPushButton(_('Choose'))
-            btn.setEnabled(o.available and o.key != 'wait')
-            btn.clicked.connect(partial(self._choose, o))
+            if o.key == 'accelerate' and self.estimate is None and not self.estimate_error:
+                btn = QPushButton(_('Get estimate'))
+                btn.setToolTip(_('Sends this txid to mempool.space to price an acceleration.'))
+                btn.setEnabled(not self.estimating)
+                btn.clicked.connect(self._fetch_estimate)
+            else:
+                btn = QPushButton(_('Choose'))
+                btn.setEnabled(o.available and o.key != 'wait')
+                btn.clicked.connect(partial(self._choose, o))
             self.table.setCellWidget(i, 4, btn)
         if rec.option:
             self.reco.setText(f"<b>{_('Recommended')}: {rec.option.title}</b> — {rec.why}")
