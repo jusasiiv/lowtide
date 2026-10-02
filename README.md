@@ -110,7 +110,7 @@ python scripts/dev_fake_wallets.py <electrum> <datadir>   # wallets with fake co
 scripts/build_zip.sh                           # dist/lowtide-0.1.0.zip via Electrum's contrib/make_plugin
 ```
 
-`lowtide/core/` is pure Python (histogram math, history merge, hour-of-week forecast, ETA model, backtest, stress test, consolidation grouping, rescue comparison, accelerator client). `service.py` is the one background thread; the `qt_*.py` modules are the UI. See `TECH_PLAN.md` for the design and `TEST_CHECKLIST.md` for the manual checks.
+`lowtide/core_*.py` are pure Python (histogram math, history merge, hour-of-week forecast, ETA model, backtest, stress test, consolidation grouping, rescue comparison, accelerator client). `service.py` is the one background thread; the `qt_*.py` modules are the UI. See `TECH_PLAN.md` for the design and `TEST_CHECKLIST.md` for the manual checks.
 
 ## Out of scope (for now)
 

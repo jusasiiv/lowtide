@@ -1,6 +1,6 @@
 import unittest
 
-from lowtide.core import stress as S, consolidate as C
+from lowtide import core_stress as S, core_consolidate as C
 
 
 def coin(i, value, vsize=68.0, label='', txid=None, confirmed=True, frozen=False):

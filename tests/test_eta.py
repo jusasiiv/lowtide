@@ -1,7 +1,7 @@
 import math
 import unittest
 
-from lowtide.core import eta as E, histogram as H, mempool_api as M
+from lowtide import core_eta as E, core_histogram as H, core_mempool_api as M
 from .helpers import fixture
 
 

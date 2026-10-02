@@ -2,7 +2,7 @@
 import math
 from typing import Dict, List, NamedTuple, Optional, Sequence
 
-from .stress import Coin, TX_OVERHEAD_VB, OUTPUT_VSIZE, fee_for
+from .core_stress import Coin, TX_OVERHEAD_VB, OUTPUT_VSIZE, fee_for
 
 UNLABELED = ''
 

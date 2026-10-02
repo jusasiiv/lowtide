@@ -2,7 +2,7 @@
 import math
 from typing import Callable, List, NamedTuple, Optional, Sequence, Tuple
 
-from .histogram import Hist, vsize_at_or_above, quantize, quantize_up, FLOOR_RATE, STEP, BLOCK_VB
+from .core_histogram import Hist, vsize_at_or_above, quantize, quantize_up, FLOOR_RATE, STEP, BLOCK_VB
 
 BLOCK_INTERVAL = 600.0  # seconds
 

@@ -2,8 +2,8 @@
 import math
 from typing import Callable, List, NamedTuple, Optional
 
-from .eta import Eta
-from .histogram import FLOOR_RATE, STEP, quantize, quantize_up
+from .core_eta import Eta
+from .core_histogram import FLOOR_RATE, STEP, quantize, quantize_up
 
 CPFP_CHILD_VB = {'p2wpkh': 110.0, 'p2wpkh-p2sh': 134.0, 'p2pkh': 192.0, 'p2wsh': 150.0, 'p2sh': 340.0, 'p2wsh-p2sh': 185.0}
 MEMPOOL_EXPIRY_S = 14 * 86400

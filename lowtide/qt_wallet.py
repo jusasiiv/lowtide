@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 from electrum.transaction import Transaction, PartialTxInput
 
-from .core.stress import Coin, input_vsize
+from .core_stress import Coin, input_vsize
 
 if TYPE_CHECKING:
     from electrum.wallet import Abstract_Wallet

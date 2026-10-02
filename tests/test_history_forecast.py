@@ -2,7 +2,7 @@ import math
 import random
 import unittest
 
-from lowtide.core import history as HI, forecast as F, backtest as B, mempool_api as M, histogram as H
+from lowtide import core_history as HI, core_forecast as F, core_backtest as B, core_mempool_api as M, core_histogram as H
 from .helpers import fixture
 
 

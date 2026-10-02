@@ -1,4 +1,5 @@
 """Qt entry point for LowTide."""
+import importlib
 import json
 import os
 import time
@@ -18,11 +19,11 @@ from electrum.gui.qt.util import (WindowModalDialog, Buttons, CloseButton, OkBut
 
 from .lowtide import LowTidePlugin
 from .qt_notify import notify as desktop_notify
-from .core.version import CORE_VERSION
-from .core.store import Store
-from .core import eta as E
-from .core import accelerator as A
-from .core import rescue as R
+from .core_version import CORE_VERSION
+from .core_store import Store
+E = importlib.import_module('.core_eta', __package__)
+A = importlib.import_module('.core_accelerator', __package__)
+R = importlib.import_module('.core_rescue', __package__)
 from .service import LowTideService, State
 from .fmt import fmt_rate, fmt_time, fmt_window, fmt_duration
 from .qt_panel import ForecastPanel

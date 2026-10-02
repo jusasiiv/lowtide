@@ -1,4 +1,5 @@
 """Stuck transaction rescue dialog and the accelerator flow."""
+import importlib
 import time
 from functools import partial
 from typing import TYPE_CHECKING, List, Optional
@@ -15,8 +16,8 @@ from electrum.gui.qt.util import WindowModalDialog, Buttons, CloseButton, Cancel
 from electrum.gui.qt.qrcodewidget import QRCodeWidget
 from electrum.gui.common_qt.util import TaskThread
 
-from .core import rescue as R
-from .core import accelerator as A
+R = importlib.import_module('.core_rescue', __package__)
+A = importlib.import_module('.core_accelerator', __package__)
 from .fmt import fmt_rate, fmt_sats_fiat, fmt_duration, fmt_time
 from .qt_wallet import wallet_script_info
 

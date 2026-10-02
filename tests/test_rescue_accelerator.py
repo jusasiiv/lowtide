@@ -1,7 +1,7 @@
 import unittest
 
-from lowtide.core import rescue as R, accelerator as A
-from lowtide.core.eta import Eta
+from lowtide import core_rescue as R, core_accelerator as A
+from lowtide.core_eta import Eta
 from .helpers import fixture
 
 

@@ -1,6 +1,6 @@
 import unittest
 
-from lowtide.core import histogram as H, mempool_api as M
+from lowtide import core_histogram as H, core_mempool_api as M
 from .helpers import fixture
 
 

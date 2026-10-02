@@ -1,4 +1,5 @@
 """Wallet stress test and tech check dialog."""
+import importlib
 import math
 from typing import TYPE_CHECKING, List, Optional
 
@@ -9,8 +10,8 @@ from PyQt6.QtWidgets import (QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTa
 from electrum.i18n import _
 from electrum.gui.qt.util import WindowModalDialog, Buttons, CloseButton, WWLabel
 
-from .core import stress as S
-from .core.mempool_api import SPIKE_FALLBACK
+S = importlib.import_module('.core_stress', __package__)
+from .core_mempool_api import SPIKE_FALLBACK
 from .fmt import fmt_rate, fmt_sats_fiat
 from .qt_wallet import wallet_coins, wallet_script_info
 

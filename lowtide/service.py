@@ -3,19 +3,20 @@
 No Qt in here. HTTP is injected as a callable so the core stays testable; in Electrum the
 callable goes through Network.send_http_on_proxy (proxy/Tor aware).
 """
+import importlib
 import json
 import threading
 import time
 import traceback
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from .core import histogram as H
-from .core import eta as E
-from .core import history as HI
-from .core import forecast as F
-from .core import backtest as B
-from .core import mempool_api as M
-from .core.store import Store
+H = importlib.import_module('.core_histogram', __package__)
+E = importlib.import_module('.core_eta', __package__)
+HI = importlib.import_module('.core_history', __package__)
+F = importlib.import_module('.core_forecast', __package__)
+B = importlib.import_module('.core_backtest', __package__)
+M = importlib.import_module('.core_mempool_api', __package__)
+from .core_store import Store
 
 HttpGet = Callable[[str, float], Any]   # (url, timeout_s) -> parsed JSON; raises on failure
 

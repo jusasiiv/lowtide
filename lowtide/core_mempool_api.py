@@ -1,7 +1,7 @@
 """mempool.space REST API: URL building and response parsing (transport is injected)."""
 from typing import Any, Dict, List, Optional, Sequence
 
-from .histogram import Hist, normalize
+from .core_histogram import Hist, normalize
 
 # Lower bounds of the 39 fee bands in /api/v1/statistics (backend/src/api/statistics/statistics.ts).
 # Band 0 is everything below 1 sat/vB.

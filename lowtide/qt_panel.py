@@ -1,4 +1,5 @@
 """Forecast panel: 7-day tide chart, rate checker, deadline planner, pile view, method."""
+import importlib
 import math
 import time
 from typing import TYPE_CHECKING, Callable, List, Optional
@@ -11,8 +12,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTabWidg
 from electrum.i18n import _
 from electrum.gui.qt.util import WWLabel, Buttons, CloseButton
 
-from .core import histogram as H
-from .core.forecast import Forecast, Window, HOUR
+H = importlib.import_module('.core_histogram', __package__)
+from .core_forecast import Forecast, Window, HOUR
 from .fmt import fmt_rate, fmt_time, fmt_window, fmt_duration, fmt_vmb, fmt_sats_fiat
 from .qt_rescue import WHEN_TO_ACCELERATE
 

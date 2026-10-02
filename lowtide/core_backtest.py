@@ -3,8 +3,8 @@ import math
 import statistics
 from typing import Dict, List, Optional, Sequence
 
-from .forecast import fit_profile, predict, low_tide_windows, quantile, WEEK, HOUR
-from .history import HistoryPoint
+from .core_forecast import fit_profile, predict, low_tide_windows, quantile, WEEK, HOUR
+from .core_history import HistoryPoint
 
 
 def run_backtest(hourly_points: Sequence[HistoryPoint], *, test_weeks: int = 4, train_weeks: int = 8) -> dict:

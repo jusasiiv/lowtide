@@ -16,7 +16,7 @@ from electrum.wallet_db import WalletDB  # noqa: E402
 from electrum.fee_policy import FeePolicy  # noqa: E402
 from electrum.transaction import PartialTxOutput  # noqa: E402
 from lowtide.qt_wallet import wallet_coins, wallet_script_info  # noqa: E402
-from lowtide.core import stress as S, consolidate as C  # noqa: E402
+from lowtide import core_stress as S, core_consolidate as C  # noqa: E402
 
 FD = sys.argv[2]
 config = SimpleConfig({'electrum_path': FD})

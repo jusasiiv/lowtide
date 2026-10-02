@@ -4,7 +4,7 @@ import os
 import time
 from typing import Any, Dict, Iterator, List, Optional
 
-from .histogram import Hist, bins, normalize
+from .core_histogram import Hist, bins, normalize
 
 
 class Store:

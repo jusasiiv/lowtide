@@ -3,8 +3,8 @@ import math
 import statistics
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence
 
-from .histogram import Hist, FLOOR_RATE, BLOCK_VB, quantize
-from .mempool_api import STATISTICS_BANDS
+from .core_histogram import Hist, FLOOR_RATE, BLOCK_VB, quantize
+from .core_mempool_api import STATISTICS_BANDS
 
 INF = math.inf
 

@@ -5,8 +5,8 @@ import statistics
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from .histogram import FLOOR_RATE, quantize
-from .history import HistoryPoint
+from .core_histogram import FLOOR_RATE, quantize
+from .core_history import HistoryPoint
 
 WEEK = 7 * 86400
 HOUR = 3600

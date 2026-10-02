@@ -1,4 +1,5 @@
 """Privacy-aware consolidation and migration dialog."""
+import importlib
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
 from PyQt6.QtCore import Qt
@@ -11,8 +12,8 @@ from electrum.fee_policy import FeePolicy
 from electrum.transaction import PartialTxOutput
 from electrum.gui.qt.util import WindowModalDialog, Buttons, CancelButton, WWLabel
 
-from .core import consolidate as C
-from .core import histogram as H
+C = importlib.import_module('.core_consolidate', __package__)
+H = importlib.import_module('.core_histogram', __package__)
 from .fmt import fmt_rate, fmt_sats_fiat
 from .qt_wallet import wallet_coins, wallet_script_info
 
