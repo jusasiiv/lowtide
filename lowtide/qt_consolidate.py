@@ -158,9 +158,8 @@ class ConsolidateDialog(WindowModalDialog):
         for p in self.plans:
             names = ', '.join(f"'{g.title}'" for g in p.groups)
             e = st.eta(p.rate)
-            eta = self.plugin.fmt_eta(e) if e else ''
-            lines.append(f"<b>{names}</b>: {len(p.coins)} {_('coins')} → 1, {p.vsize:.0f} vB, {_('fee')} <b>{fmt_sats_fiat(self.window, p.fee)}</b> "
-                         f"({fmt_rate(p.rate)} sat/vB), {_('you keep')} {p.output_value:,} sats. {eta}")
+            eta = self.plugin.fmt_eta(e, short=True) if e else ''
+            lines.append(f"<b>{names}</b>: {len(p.coins)} {_('coins')} → 1 {_('for')} <b>{fmt_sats_fiat(self.window, p.fee)}</b> · {eta}")
             if p.uneconomical:
                 lines.append(f"&nbsp;&nbsp;{len(p.uneconomical)} {_('of these coins cost more to move than they hold even at this rate; they are included because moving them now is cheapest.')}")
         if self.plans:

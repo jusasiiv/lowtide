@@ -14,6 +14,7 @@ from electrum.gui.qt.util import WWLabel, Buttons, CloseButton
 from .core import histogram as H
 from .core.forecast import Forecast, Window, HOUR
 from .fmt import fmt_rate, fmt_time, fmt_window, fmt_duration, fmt_vmb, fmt_sats_fiat
+from .qt_rescue import WHEN_TO_ACCELERATE
 
 if TYPE_CHECKING:
     from .service import State
@@ -276,6 +277,18 @@ class ForecastPanel(QDialog):
         vbox.addWidget(self.head_tide)
         vbox.addWidget(self.head_meta)
         vbox.addWidget(self.head_warn)
+        stranded_hb = QHBoxLayout()
+        self.stranded_label = QLabel('')
+        self.stranded_label.setStyleSheet('color: #b06000; font-weight: bold')
+        stranded_hb.addWidget(self.stranded_label)
+        self.stranded_btn = QPushButton(_('Rescue…'))
+        self.stranded_btn.clicked.connect(self._rescue_first_stranded)
+        stranded_hb.addWidget(self.stranded_btn)
+        stranded_hb.addStretch(1)
+        self.stranded_row = QWidget()
+        self.stranded_row.setLayout(stranded_hb)
+        self.stranded_row.hide()
+        vbox.addWidget(self.stranded_row)
 
         self.chart = TideChart()
         vbox.addWidget(self.chart, 1)
@@ -366,15 +379,20 @@ class ForecastPanel(QDialog):
         now = st.now()
         fc = st.forecast
         if st.next_block_rate is not None:
-            pct = f" · {_('cheaper than')} {fc.now_percentile * 100:.0f}% {_('of the past week')}" if fc else ''
-            self.head_now.setText(f"{_('Now')}: {fmt_rate(st.next_block_rate)} sat/vB {_('for the next block')}{pct}")
+            verdict = ''
+            if fc:
+                p = fc.now_percentile
+                verdict = ' · ' + (_('a cheap moment') if p >= 0.75 else _('an average moment') if p >= 0.35 else _('an expensive moment'))
+            self.head_now.setText(f"{_('Next block')}: {fmt_rate(st.next_block_rate)} sat/vB{verdict}")
+            if fc:
+                self.head_now.setToolTip(_('Cheaper than {}% of the past week\'s hours.').format(f'{fc.now_percentile * 100:.0f}'))
         else:
             self.head_now.setText(_('Waiting for mempool data…'))
         cur, nxt = st.current_window(), st.next_window()
         if cur:
-            self.head_tide.setText(f"🌊 {_('Low tide now')}: ≈{fmt_rate(cur.rate)} sat/vB {_('until')} {fmt_time(cur.end)}")
+            self.head_tide.setText(f"🌊 {_('Low tide now')} {_('until')} {fmt_time(cur.end)}: ≈{fmt_rate(cur.rate)} sat/vB")
         elif nxt:
-            self.head_tide.setText(f"{_('Next low tide')}: {fmt_window(nxt)} ≈{fmt_rate(nxt.rate)} sat/vB ({_('in')} {fmt_duration(nxt.start - now)})")
+            self.head_tide.setText(f"{_('Next low tide')}: {fmt_window(nxt)} ({_('in')} {fmt_duration(nxt.start - now)}), ≈{fmt_rate(nxt.rate)} sat/vB")
         else:
             self.head_tide.setText(_('No low tide found in the next 7 days.'))
         src = {'mempool': self.plugin.config.LOWTIDE_MEMPOOL_URL, 'server': _('Electrum server'), 'cache': _('cache')}.get(st.hist_source, st.hist_source)
@@ -384,19 +402,29 @@ class ForecastPanel(QDialog):
         if st.offline:
             meta += f" · {_('offline, showing cached data')}" + (f" ({st.last_error})" if st.last_error else '')
         self.head_meta.setText(meta)
-        warn = self.plugin.relay_warning_text(self.main_window)
+        warn = self.plugin.relay_warning_text()
         self.head_warn.setText(warn or '')
         self.head_warn.setVisible(bool(warn))
+        stranded = self.plugin.stranded_txs(self.main_window)
+        if stranded:
+            self.stranded_label.setText(_('{} transaction(s) waited longer than expected').format(len(stranded)))
+            self.stranded_row.show()
+        else:
+            self.stranded_row.hide()
         self.chart.set_data(fc, now, [(p.ts, p.rate) for p in st.past_week])
         self.pile_chart.set_data(st.hist, st.pile, st.next_block_rate)
         if st.pile:
             e = st.eta(st.pile.rate)
-            eta_txt = self.plugin.fmt_eta(e)
+            saving = max(0, int(round((1 - st.pile.rate / st.pile.ceiling_rate) * 100)))
             self.pile_label.setText(
-                f"<b>{fmt_rate(st.pile.rate)} sat/vB</b>: {_('ahead of')} {fmt_vmb(st.pile.ahead_vb)}, {_('behind')} {fmt_vmb(st.pile.behind_vb)} "
-                f"({_('paying')} {fmt_rate(st.pile.ceiling_rate)} sat/vB: {_('behind')} {fmt_vmb(st.pile.ceiling_behind_vb)}). {eta_txt}<br>"
+                f"<b>{fmt_rate(st.pile.rate)} sat/vB</b> {_('jumps the')} {fmt_vmb(st.pile.ahead_vb)} {_('pile')}: "
+                f"{_('nearly the same place in line as')} {fmt_rate(st.pile.ceiling_rate)} sat/vB {_('for')} {saving}% {_('less')}. "
+                f"{self.plugin.fmt_eta(e, short=True)}.")
+            self.pile_label.setToolTip(
+                f"{_('Ahead of')} {fmt_vmb(st.pile.ahead_vb)}, {_('behind')} {fmt_vmb(st.pile.behind_vb)} "
+                f"({_('paying')} {fmt_rate(st.pile.ceiling_rate)} sat/vB: {_('behind')} {fmt_vmb(st.pile.ceiling_behind_vb)}).\n"
                 f"{_('Mempool')}: {fmt_vmb(H.total_vsize(st.hist))} {_('total')}, {fmt_vmb(H.sub1_vsize(st.hist))} {_('below 1 sat/vB')}, "
-                f"{_('minimum')} {fmt_rate(st.mempool_min_fee)} sat/vB.")
+                f"{_('minimum')} {fmt_rate(st.mempool_min_fee)} sat/vB.\n" + self.plugin.fmt_eta(e, verbose=True).replace('<br>', '\n'))
             self.pile_apply.setText(_('Use {} sat/vB for next send').format(fmt_rate(st.pile.rate)))
             self.pile_apply.setEnabled(True)
         else:
@@ -404,9 +432,11 @@ class ForecastPanel(QDialog):
             self.pile_apply.setText(_('Use for next send'))
             self.pile_apply.setEnabled(False)
         bt = (st.backtest or {}).get('headline') or _('Backtest pending (needs 3 months of history).')
+        when = '<ul>' + ''.join(f'<li><b>{t}</b>: {d}</li>' for t, d in WHEN_TO_ACCELERATE) + '</ul>'
         self.method_label.setText(
             f"<b>{_('Method')}</b><br>{fc.method if fc else ''}<br><br>"
             f"<b>{_('Accuracy')}</b><br>{bt}<br><br>"
+            f"<b>{_('When is acceleration the right call?')}</b>{when}"
             f"<b>{_('Resolution below 1 sat/vB')}</b><br>"
             + _("mempool history cannot resolve below 1 sat/vB, so sub-1 advice comes from the live fee histogram, "
                 "and LowTide records its own 10-minute snapshots to build sub-1 history over time.") + "<br><br>"
@@ -431,7 +461,8 @@ class ForecastPanel(QDialog):
             self.rate_apply.setEnabled(False)
         else:
             e = st.eta(r)
-            self.rate_result.setText(self.plugin.fmt_eta(e, verbose=True))
+            self.rate_result.setText(self.plugin.fmt_eta(e))
+            self.rate_result.setToolTip(self.plugin.fmt_eta(e, verbose=True).replace('<br>', '\n'))
             self.rate_apply.setEnabled(True)
         deadline = self.deadline_e.dateTime().toSecsSinceEpoch()
         secs = deadline - st.now()
@@ -447,10 +478,10 @@ class ForecastPanel(QDialog):
             self.deadline_apply.setEnabled(False)
             return
         self._deadline_rate = e.rate
-        txt = f"{_('Cheapest safe rate now')}: <b>{fmt_rate(e.rate)} sat/vB</b> ({self.plugin.fmt_eta(e)})"
+        txt = f"{_('Send now at')} <b>{fmt_rate(e.rate)} sat/vB</b> ({self.plugin.fmt_eta(e, short=True)})"
         best = st.best_send_time(deadline)
         if best and best.median < e.rate - 1e-9:
-            txt += f"<br>{_('Or wait')}: {fmt_time(best.ts)} {_('at')} ≈{fmt_rate(best.median)} sat/vB ({_('forecast')})"
+            txt += f"<br>{_('or wait until')} <b>{fmt_time(best.ts)}</b> {_('and pay about')} {fmt_rate(best.median)} sat/vB"
         self.deadline_result.setText(txt)
         self.deadline_apply.setEnabled(True)
 
@@ -458,3 +489,8 @@ class ForecastPanel(QDialog):
         if rate is None:
             return
         self.plugin.apply_rate(self.main_window, rate)
+
+    def _rescue_first_stranded(self):
+        stranded = self.plugin.stranded_txs(self.main_window)
+        if stranded:
+            self.plugin.open_rescue_txid(self.main_window, stranded[0])
