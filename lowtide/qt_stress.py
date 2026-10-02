@@ -54,7 +54,7 @@ class StressDialog(WindowModalDialog):
         vbox.addWidget(tech)
 
         self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels([_('Scenario'), 'sat/vB', _('Fee to spend every coin'), _('Fiat'), _('% of balance'), _('Uneconomical coins')])
+        self.table.setHorizontalHeaderLabels([_('Scenario'), 'sat/vB', _('Fee to spend all'), _('Fiat'), _('% of balance'), _('Uneconomical coins')])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)

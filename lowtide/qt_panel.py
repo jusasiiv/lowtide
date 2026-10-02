@@ -213,7 +213,7 @@ class ForecastPanel(QDialog):
         vbox.addWidget(self.chart, 1)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_checker(), _('Rate & deadline'))
+        self.tabs.addTab(self._build_checker(), _('Rate and deadline'))
         self.tabs.addTab(self._build_method(), _('Method'))
         vbox.addWidget(self.tabs)
 
