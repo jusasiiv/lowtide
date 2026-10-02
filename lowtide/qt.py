@@ -148,6 +148,58 @@ class Plugin(LowTidePlugin):
         self._monitor.setInterval(60_000)
         self._monitor.timeout.connect(self._monitor_tick)
         self._monitor.start()
+        # Enabled from the Plugins dialog after the window was built? Then the hooks already fired: attach now.
+        QTimer.singleShot(0, self._attach_to_existing_windows)
+
+    def _attach_to_existing_windows(self):
+        try:
+            from PyQt6.QtWidgets import QApplication
+            from electrum.gui.qt.main_window import ElectrumWindow
+        except Exception:
+            return
+        app = QApplication.instance()
+        if app is None:
+            return
+        for w in app.topLevelWidgets():
+            if not isinstance(w, ElectrumWindow):
+                continue
+            try:
+                sb = w.statusBar()
+                if id(sb) not in self._status_buttons:
+                    self.create_status_bar(sb)
+                if w not in self._windows and getattr(w, 'wallet', None) is not None:
+                    self.load_wallet(w.wallet, w)
+                if not getattr(w, '_lowtide_menu', False):
+                    self.init_menubar(w)
+                    w._lowtide_menu = True
+                self._attach_send_row(w)
+            except Exception:
+                self.logger.exception('late attach failed')
+
+    def _attach_send_row(self, w):
+        """Best effort: find the Send tab's grid and add the LowTide row if it is not there yet."""
+        try:
+            if any(r.window() is w for r in self._send_rows):
+                return
+            from PyQt6.QtWidgets import QGridLayout
+            def find_grid(layout):
+                if layout is None:
+                    return None
+                if isinstance(layout, QGridLayout):
+                    return layout
+                for i in range(layout.count()):
+                    item = layout.itemAt(i)
+                    sub = item.layout()
+                    if sub is not None:
+                        g = find_grid(sub)
+                        if g is not None:
+                            return g
+                return None
+            grid = find_grid(w.send_tab.layout())
+            if grid is not None:
+                self.create_send_tab(grid)
+        except Exception:
+            pass
 
     def on_close(self):
         self._monitor.stop()
@@ -223,6 +275,7 @@ class Plugin(LowTidePlugin):
 
     @hook
     def init_menubar(self, window: 'ElectrumWindow'):
+        window._lowtide_menu = True
         m = window.tools_menu.addMenu('LowTide')
         m.setIcon(self.icon())
         m.addAction(_('Tide forecast'), lambda: self.open_panel(window))
