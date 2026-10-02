@@ -394,6 +394,135 @@ class Plugin(LowTidePlugin):
             except Exception:
                 self.logger.exception('monitor failed')
 
+    def _watch_wallet(self, window, wallet, wst, st: State):
+        now = time.time()
+        storage = self.get_storage(wallet)
+        watch = storage.setdefault('tx_watch', {})
+        try:
+            unconf = dict(wallet.adb.unconfirmed_tx)
+        except Exception:
+            unconf = {}
+        stranded = []
+        changed = False
+        for txid in list(unconf):
+            tx = wallet.db.get_transaction(txid)
+            if tx is None:
+                continue
+            fee = wallet.adb.get_tx_fee(txid)
+            vsize = tx.estimated_size()
+            rate = (fee / vsize) if (fee and vsize) else None
+            rec = watch.get(txid)
+            if rec is None:
+                e = st.eta(rate) if (rate and st.hist) else None
+                rec = {'first_seen': int(now), 'rate': rate, 'p90_s': (e.p90_s if e else None), 'median_s': (e.median_s if e else None)}
+                watch[txid] = rec
+                changed = True
+            age = now - rec['first_seen']
+            reasons = []
+            expected = rec.get('p90_s')
+            if expected is not None and age > expected and age > 1800:
+                reasons.append('stranded')
+            elif expected is None and age > 24 * 3600:
+                reasons.append('stranded')
+            if rate is not None and st.hist and rate < st.mempool_min_fee - 1e-9:
+                reasons.append('evicting')
+            if age > 12 * 86400:
+                reasons.append('expiring')
+            if reasons:
+                stranded.append(txid)
+                key = f'stranded:{txid}:{reasons[0]}'
+                if key not in self._notified and self.notifications_enabled():
+                    self._notified.add(key)
+                    self._save_notified()
+                    label = wallet.get_label_for_txid(txid) or txid[:16] + '…'
+                    if 'evicting' in reasons:
+                        msg = _('"{}" pays {} sat/vB, below the mempool minimum of {} sat/vB: nodes are dropping it. Bump or rebroadcast it.').format(
+                            label, fmt_rate(rate), fmt_rate(st.mempool_min_fee))
+                    elif 'expiring' in reasons:
+                        msg = _('"{}" is close to the 2-week mempool expiry. Bump or rebroadcast it.').format(label)
+                    else:
+                        msg = _('"{}" has waited longer than the forecast expected ({}). Open it to compare rescue options.').format(label, fmt_duration(age))
+                    self.notify_all(msg, title=_('Stranded transaction'),
+                                    actions=[(_('Rescue…'), partial(self.open_rescue, window, tx))], only_window=window)
+        # forget confirmed ones
+        for txid in list(watch):
+            if txid not in unconf:
+                watch.pop(txid, None)
+                changed = True
+        if changed:
+            try:
+                wallet.save_db()
+            except Exception:
+                pass
+        if stranded != wst.get('stranded'):
+            wst['stranded'] = stranded
+            btn = self._status_buttons.get(id(window.statusBar()))
+            if btn:
+                self._update_status_button(btn, st)
+            panel = wst.get('panel')
+            if panel is not None and panel.isVisible():
+                panel.update_state(st)
+
+    def stranded_txs(self, window) -> List[str]:
+        return list((self._windows.get(window) or {}).get('stranded') or [])
+
+    def record_acceleration(self, wallet, txid: str, fields: dict):
+        storage = self.get_storage(wallet)
+        acc = storage.setdefault('accelerations', {})
+        rec = acc.setdefault(txid, {})
+        rec.update(fields)
+        rec['updated'] = int(time.time())
+        try:
+            wallet.save_db()
+        except Exception:
+            pass
+
+    # --- actions ------------------------------------------------------
+
+    def _window_for_wallet(self, wallet):
+        for w, st in self._windows.items():
+            if st.get('wallet') is wallet:
+                return w
+        return None
+
+    def _on_status_clicked(self, btn: StatusButton):
+        self.open_panel(btn.window())
+
+    def open_panel(self, window):
+        wst = self._windows.get(window)
+        if wst is None:
+            for w in self._windows:
+                window, wst = w, self._windows[w]
+                break
+            else:
+                return
+        panel = wst.get('panel')
+        if panel is None:
+            panel = ForecastPanel(self, window)
+            wst['panel'] = panel
+        panel.update_state(self.state)
+        panel.show()
+        panel.raise_()
+        panel.activateWindow()
+
+    def open_stress(self, window):
+        StressDialog(self, window).exec()
+
+    def open_consolidate(self, window, *, preselected=None, migration=False):
+        ConsolidateDialog(self, window, preselected=preselected, migration=migration).exec()
+
+    def open_rescue(self, window, tx: Transaction):
+        RescueDialog(self, window, tx).exec()
+
+    def open_rescue_txid(self, window, txid: str):
+        tx = window.wallet.db.get_transaction(txid)
+        if tx is not None:
+            self.open_rescue(window, tx)
+
+    def _rescue_from_dialog(self, d: 'TxDialog'):
+        window = d.main_window
+        self.open_rescue(window, d.tx)
+
     def set_demo(self, key: str, on: bool):
         if on:
             self.state.demo[key] = True
