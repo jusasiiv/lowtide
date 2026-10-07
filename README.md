@@ -12,12 +12,6 @@ Shows when fees will be low over the next week, and notifies you when a cheap wi
 
 <img src="demo/screenshots/01-forecast-panel.png" alt="Forecast panel" width="600">
 
-### Rate and deadline check
-
-Type a fee to see when it will likely confirm, or pick a deadline to get the cheapest fee that meets it.
-
-<img src="demo/screenshots/02-rate-deadline.png" alt="Rate and deadline check" width="600">
-
 ### Stress test
 
 Shows what it would cost to spend your coins today, at the next cheap window, or during a fee spike like those of past years.
