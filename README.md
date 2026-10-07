@@ -4,14 +4,31 @@ A plugin for the [Electrum](https://electrum.org) Bitcoin wallet that helps you 
 
 Built at bitcoin++ Berlin 2026.
 
-![Forecast panel](demo/screenshots/01-forecast-panel.png)
-
 ## What it does
 
-- **Fee forecast.** Shows when fees will be low over the next week, and notifies you when a cheap window starts. It can suggest a fee below 1 sat/vB, which Electrum does not offer by default, and fill it in for your next payment.
-- **Stress test.** Shows what it would cost to spend your coins today, at the next cheap window, or during a fee spike like those of past years.
-- **Coin tidy-up.** Combines many small coins into fewer while fees are low, without mixing coins you have labelled differently.
-- **Stuck payment rescue.** When a payment is taking too long, compares your options side by side (wait, raise the fee, or pay mempool.space to speed it up) and recommends the cheapest one that meets your deadline.
+### Fee forecast
+
+Shows when fees will be low over the next week, and notifies you when a cheap window starts. It can suggest a fee below 1 sat/vB, which Electrum does not offer by default, and fill it in for your next payment.
+
+<img src="demo/screenshots/01-forecast-panel.png" alt="Forecast panel" width="600">
+
+### Stress test
+
+Shows what it would cost to spend your coins today, at the next cheap window, or during a fee spike like those of past years.
+
+<img src="demo/screenshots/03-stress-test.png" alt="Stress test" width="600">
+
+### Coin tidy-up
+
+Combines many small coins into fewer while fees are low, without mixing coins you have labelled differently.
+
+<img src="demo/screenshots/04-consolidation.png" alt="Coin tidy-up" width="600">
+
+### Stuck payment rescue
+
+When a payment is taking too long, compares your options side by side (wait, raise the fee, or pay mempool.space to speed it up) and recommends the cheapest one that meets your deadline.
+
+<img src="demo/screenshots/05-rescue.png" alt="Stuck payment rescue" width="600">
 
 ## Privacy
 
