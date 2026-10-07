@@ -25,6 +25,12 @@ You need Electrum 4.8.2 for desktop. In Electrum, open Tools ▸ Plugins ▸ Add
 
 [FORECAST.md](FORECAST.md) explains how the forecast works, how accurate it is, and what data it uses.
 
+## Attribution
+
+![Blockonomics logo](blockonomics_logo.png)
+
+Although 100 % of the work for this plugin was done during the Berlin Bitcoin++ hackathon, some prior research and ideas have come from my work at Blockonomics.
+
 ## License
 
 MIT.
